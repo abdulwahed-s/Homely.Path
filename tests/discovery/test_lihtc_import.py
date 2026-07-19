@@ -34,6 +34,7 @@ def test_lihtc_normalization_preserves_nulls_codes_and_unknown_availability():
     )
 
     assert result["property_name"] == "Harbor View"
+    assert result["property_name_normalized"] == "harbor view"
     assert result["address"] is None
     assert result["zip_code"] == "02120"
     assert result["county_fips"] == "25025"

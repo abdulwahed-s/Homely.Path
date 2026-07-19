@@ -7,6 +7,9 @@ __pycache__/
 
 firebase-service-account.json
 *service-account*.json
+firebase-debug.log*
+firestore-debug.log*
+.firebase/
 
 data/hud/*
 !data/hud/README.md

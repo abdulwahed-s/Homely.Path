@@ -1,0 +1,41 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "discovery_properties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "city_normalized",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "property_name_normalized",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "discovery_properties",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "zip_code",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "property_name_normalized",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

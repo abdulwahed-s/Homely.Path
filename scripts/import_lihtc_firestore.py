@@ -101,10 +101,14 @@ def normalize_lihtc_row(
     city_normalized = normalize_locality(city)
     county_fips = _county_fips(row, column_map)
     location_key = (state, city_normalized) if state and city_normalized else None
+    property_name = clean_string(row.get(column_map["property_name"]))
 
     return {
         "property_id": clean_string(row.get(column_map["property_id"])),
-        "property_name": clean_string(row.get(column_map["property_name"])),
+        "property_name": property_name,
+        "property_name_normalized": (
+            property_name.casefold() if property_name else None
+        ),
         "address": clean_string(row.get(column_map["address"])),
         "city": city,
         "city_normalized": city.casefold() if city else None,
