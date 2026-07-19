@@ -1,0 +1,9 @@
+# AI Developer 1 runtime dependencies (RealDoor)
+pydantic>=2,<3            # frozen contract models
+PyMuPDF>=1.24            # PDF text extraction, rasterization, page rendering
+openai>=1.40             # vision model (classification + extraction); needs OPENAI_API_KEY
+Pillow>=10               # image handling
+rapidocr-onnxruntime>=1.3 # OCR word boxes for rasterized (image-only) PDFs
+fastapi>=0.110           # HTTP endpoints (/internal/ai/extract, /internal/ai/reconcile)
+uvicorn>=0.29            # ASGI server (python serve.py)
+python-multipart>=0.0.9  # multipart/form-data file uploads on /extract

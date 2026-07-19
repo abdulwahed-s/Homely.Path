@@ -1,0 +1,27 @@
+{
+  "n_bins": 10,
+  "accuracy": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    0.909,
+    0.846,
+    0.829
+  ],
+  "counts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    22,
+    52,
+    82
+  ]
+}

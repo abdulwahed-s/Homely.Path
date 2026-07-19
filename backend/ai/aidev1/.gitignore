@@ -1,0 +1,61 @@
+# =============================================================================
+# AI Developer 1 — .gitignore
+# Governance: governance/ORGANIZER_APPROVALS.md marks the organizer pack as a
+# DRAFT that must NOT be redistributed as final licensed content. Nothing pack-
+# derived may be committed to a repo that could go public.
+# =============================================================================
+
+# --- Organizer pack (draft, non-redistributable) ----------------------------
+# Excludes the whole pack: synthetic documents, gold files, rule corpus,
+# MTSP CSVs, starter code — wherever it sits under this tree.
+organizer_pack/
+**/organizer_pack/
+
+# --- Gold-derived / regenerable artifacts ------------------------------------
+# Fitted from organizer gold via calibrate.py; regenerable, not source.
+
+
+# --- Secrets & credentials ---------------------------------------------------
+.env
+.env.*
+*.key
+*.pem
+**/*credential*.json
+**/*secret*.json
+service-account*.json
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Virtual environments ----------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+*.venv/
+
+# --- Non-essential unit tests (regenerable) ----------------------------------
+# Keep only the FR-critical proofs in version control:
+#   - document_evidence/tests/test_contract_shim.py   (frozen-contract integrity)
+#   - document_evidence/tests/test_allowlist.py        (FR1.4 allowlist/gold parity)
+#   - profile_reconciliation/tests/test_gross_total.py    (FR1.12)
+#   - profile_reconciliation/tests/test_cross_document.py (FR1.12)
+# The rest are excluded per governance/minimal-footprint request.
+backend/ai/document_evidence/tests/test_boxes.py
+backend/ai/document_evidence/tests/test_confidence.py
+backend/ai/document_evidence/tests/test_injection.py
+backend/ai/document_evidence/tests/test_normalize.py
+backend/ai/document_evidence/tests/test_activity.py
+backend/ai/document_evidence/tests/test_llm.py
+backend/ai/document_evidence/tests/test_prompts.py
+
+# --- Editor / OS -------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
