@@ -1,0 +1,85 @@
+{
+  "session_id": "<FIREBASE_UID>",
+  "owner_uid": "<FIREBASE_UID>",
+  "household_id": "HH-DEMO-001",
+  "active": true,
+  "readiness_status": "NEEDS_REVIEW",
+  "calculation": {
+    "household_id": "HH-DEMO-001",
+    "household_size": 2,
+    "annualized_income": 41600,
+    "threshold": 82320,
+    "comparison": "below_or_equal",
+    "formula_steps": [
+      {
+        "label": "PAY-STUB-DEMO:pay_stub",
+        "formula": "800 x weekly",
+        "result": 41600
+      }
+    ],
+    "calculation_source": "deterministic",
+    "rule_year": 2026,
+    "citations": [
+      {
+        "rule_id": "CH-INCOME-001",
+        "effective_date": "2026-07-18"
+      }
+    ]
+  },
+  "review_reasons": [
+    {
+      "code": "PAY_STUB_TOTAL_CONFLICT",
+      "message": "The gross-pay values on one pay stub do not reconcile.",
+      "severity": "REVIEW"
+    }
+  ],
+  "checklist": [
+    {
+      "item": "Employment letter",
+      "code": "EMPLOYMENT_LETTER_FRESHNESS",
+      "status": "EXPIRED",
+      "message": "The employment letter is older than the frozen 60-day convention.",
+      "document_id": "EMPLOYMENT-LETTER-DEMO"
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "CONFLICT-DEMO-001",
+      "code": "PAY_STUB_TOTAL_CONFLICT",
+      "status": "UNRESOLVED",
+      "message": "Confirm the gross-pay amount before continuing.",
+      "document_ids": ["PAY-STUB-DEMO"],
+      "field_names": ["gross_pay"]
+    }
+  ],
+  "next_steps": [
+    {
+      "code": "CONFIRM_GROSS_PAY",
+      "action": "Review and confirm the gross-pay amount"
+    },
+    {
+      "code": "REPLACE_EMPLOYMENT_LETTER",
+      "action": "Provide a current employment letter"
+    }
+  ],
+  "selected_property": {
+    "property_id": "MA-DEMO-001",
+    "property_name": "Harbor View Apartments",
+    "city": "Boston",
+    "state": "MA",
+    "zip_code": "02120",
+    "availability_status": "UNKNOWN",
+    "fmr_reference": {
+      "fiscal_year": 2026,
+      "bedrooms": 2,
+      "amount": 2635,
+      "label": "HUD area rent benchmark — not property rent."
+    },
+    "mtsp_reference": {
+      "fiscal_year": 2026,
+      "household_size": 2,
+      "income_limit": 82320,
+      "label": "HUD area reference, not an eligibility decision."
+    }
+  }
+}
