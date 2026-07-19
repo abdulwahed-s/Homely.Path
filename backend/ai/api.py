@@ -58,6 +58,7 @@ from backend.ai.document_evidence.agent import DocumentEvidenceAgent
 from backend.ai.document_evidence.llm import LLMError
 from backend.ai.document_evidence.pdf_loader import PdfLoadError
 from backend.ai.profile_reconciliation.agent import ReconciliationAgent
+from backend.discovery.api import router as discovery_router
 
 __all__ = [
     "create_app",
@@ -151,6 +152,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.include_router(discovery_router)
 
     # Firebase ID-token verification for every /internal/ai/* route. The
     # `auth.firebase_user` dependency reads `Authorization: Bearer <token>`,

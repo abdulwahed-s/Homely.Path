@@ -19,10 +19,11 @@ keeps the deterministic gold/offline test suite (which has no credentials)
 working while making a properly-configured deploy secure by default.
 
 Credential resolution order (first hit wins):
-    1. ``FIREBASE_CREDENTIALS_JSON``            inline service-account JSON
-    2. ``FIREBASE_CREDENTIALS_FILE``            path to a service-account JSON
-    3. ``GOOGLE_APPLICATION_CREDENTIALS``       path (SDK default env var)
-    4. Application Default Credentials          (GCP metadata / gcloud login)
+    1. ``FIREBASE_SERVICE_ACCOUNT_JSON``        inline service-account JSON
+    2. ``FIREBASE_CREDENTIALS_JSON``            legacy inline JSON alias
+    3. ``FIREBASE_CREDENTIALS_FILE``            path to a service-account JSON
+    4. ``GOOGLE_APPLICATION_CREDENTIALS``       path (SDK default env var)
+    5. Application Default Credentials          (GCP metadata / gcloud login)
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ _FALSY = {"0", "false", "no", "off"}
 
 # Env vars that, when present, imply Firebase auth should be enforced.
 _CREDENTIAL_ENV_VARS = (
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
     "FIREBASE_CREDENTIALS_JSON",
     "FIREBASE_CREDENTIALS_FILE",
     "GOOGLE_APPLICATION_CREDENTIALS",
@@ -94,7 +96,9 @@ def is_enabled() -> bool:
 def _load_credentials():
     from firebase_admin import credentials
 
-    inline = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+    inline = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or os.environ.get(
+        "FIREBASE_CREDENTIALS_JSON"
+    )
     if inline:
         try:
             return credentials.Certificate(json.loads(inline))
@@ -102,7 +106,7 @@ def _load_credentials():
             raise AuthError(
                 500,
                 "AUTH_MISCONFIGURED",
-                f"FIREBASE_CREDENTIALS_JSON is not valid service-account JSON: {exc}",
+                f"Firebase service-account JSON is invalid: {exc}",
             ) from exc
 
     path = os.environ.get("FIREBASE_CREDENTIALS_FILE") or os.environ.get(

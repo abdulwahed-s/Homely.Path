@@ -1,0 +1,109 @@
+{
+  "collections": {
+    "dataset_versions": {
+      "HUD_LIHTC_TEST": {
+        "dataset_name": "HUD_LIHTC_TEST",
+        "source_year": 2026,
+        "fiscal_year": null,
+        "source_file": "SYNTHETIC_TEST_DATA",
+        "source_page": "TEST_ONLY",
+        "checksum_sha256": "TEST_ONLY",
+        "record_count": 1,
+        "imported_at": "__SERVER_TIMESTAMP__",
+        "status": "TEST",
+        "validation_errors": []
+      },
+      "HUD_FMR_2026_TEST": {
+        "dataset_name": "HUD_FMR_TEST",
+        "source_year": null,
+        "fiscal_year": 2026,
+        "source_file": "SYNTHETIC_TEST_DATA",
+        "source_page": "TEST_ONLY",
+        "checksum_sha256": "TEST_ONLY",
+        "record_count": 1,
+        "imported_at": "__SERVER_TIMESTAMP__",
+        "status": "TEST",
+        "validation_errors": []
+      },
+      "HUD_MTSP_2026_TEST": {
+        "dataset_name": "HUD_MTSP_TEST",
+        "source_year": null,
+        "fiscal_year": 2026,
+        "source_file": "SYNTHETIC_TEST_DATA",
+        "source_page": "TEST_ONLY",
+        "checksum_sha256": "TEST_ONLY",
+        "record_count": 1,
+        "imported_at": "__SERVER_TIMESTAMP__",
+        "status": "TEST",
+        "validation_errors": []
+      }
+    },
+    "fmr_references": {
+      "2026_TEST-FMR-AREA": {
+        "area_id": "TEST-FMR-AREA",
+        "area_name": "Synthetic Test FMR Area",
+        "county_fips": "25025",
+        "state": "MA",
+        "fiscal_year": 2026,
+        "efficiency": 1800,
+        "bedroom_1": 2000,
+        "bedroom_2": 2300,
+        "bedroom_3": 2700,
+        "bedroom_4": 3100,
+        "effective_date": "2026-01-01",
+        "source_dataset": "HUD_FMR_TEST",
+        "source_imported_at": "__SERVER_TIMESTAMP__"
+      }
+    },
+    "mtsp_references": {
+      "2026_TEST-MTSP-AREA": {
+        "area_id": "TEST-MTSP-AREA",
+        "area_name": "Synthetic Test MTSP Area",
+        "state": "MA",
+        "fiscal_year": 2026,
+        "median_family_income": null,
+        "limits_50_percent": null,
+        "limits_60_percent": {
+          "1": 50000,
+          "2": 57000,
+          "3": 64000,
+          "4": 71000,
+          "5": 77000,
+          "6": 83000,
+          "7": 89000,
+          "8": 95000
+        },
+        "hera_special": false,
+        "effective_date": "2026-01-01",
+        "source_dataset": "HUD_MTSP_TEST",
+        "source_imported_at": "__SERVER_TIMESTAMP__"
+      }
+    },
+    "discovery_properties": {
+      "TEST-001": {
+        "property_id": "TEST-001",
+        "property_name": "Alpha Apartments",
+        "property_name_normalized": "alpha apartments",
+        "address": "10 Example Street",
+        "city": "Boston",
+        "city_normalized": "boston",
+        "state": "MA",
+        "zip_code": "02120",
+        "county_name": "Suffolk County",
+        "county_fips": "25025",
+        "latitude": 42.361,
+        "longitude": -71.06,
+        "total_units": 40,
+        "low_income_units": 35,
+        "placed_in_service_year": 2018,
+        "construction_type": null,
+        "fmr_area_id": "TEST-FMR-AREA",
+        "mtsp_area_id": "TEST-MTSP-AREA",
+        "availability_status": "UNKNOWN",
+        "source_dataset": "HUD_LIHTC_TEST",
+        "source_version": "TEST",
+        "source_imported_at": "__SERVER_TIMESTAMP__"
+      }
+    }
+  }
+}
