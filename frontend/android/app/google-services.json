@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "635768197518",
+    "project_id": "homelypath",
+    "storage_bucket": "homelypath.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:635768197518:android:ac6e7b49e907a3e8c914df",
+        "android_client_info": {
+          "package_name": "com.aw.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZYW8Uz7fDj_Is4GzhcWNqQfteDKIlppI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
