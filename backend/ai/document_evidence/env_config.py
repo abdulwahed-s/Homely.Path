@@ -41,10 +41,41 @@ def find_organizer_pack(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+def _env_candidates(start: Optional[Path] = None) -> list[Path]:
+    """Ordered ``.env`` locations to probe.
+
+    ``env_config.py`` lives at ``backend/ai/document_evidence``, so the real
+    ``.env`` (holding OPENAI_API_KEY) sits at ``backend/ai/aidev1/.env`` — a
+    sibling, not a parent. Also probe the repo root and the current working
+    directory so the loader works regardless of where the process is launched.
+    """
+    ai_dir = Path(__file__).resolve().parents[1]  # backend/ai
+    repo_root = ai_dir.parents[1]                  # repo root
+    candidates: list[Path] = []
+    if start is not None:
+        candidates.append(Path(start) / ".env")
+    candidates.extend([
+        ai_dir / "aidev1" / ".env",
+        repo_root / ".env",
+        Path.cwd() / ".env",
+    ])
+    # de-dup while preserving order
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for c in candidates:
+        key = str(c.resolve())
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+    return unique
+
+
 def find_env(start: Optional[Path] = None) -> Optional[Path]:
-    """Return the path to ``.env`` at the aidev1 root, if it exists."""
-    candidate = (start or _AIDEV1_ROOT) / ".env"
-    return candidate if candidate.is_file() else None
+    """Return the first existing ``.env`` among the candidate locations."""
+    for candidate in _env_candidates(start):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def load_env(path: Optional[Path] = None, override: bool = False) -> bool:

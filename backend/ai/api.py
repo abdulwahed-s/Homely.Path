@@ -32,10 +32,12 @@ injectable so tests can supply fakes.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -104,6 +106,25 @@ def create_app(
     routes are model-independent and behave identically in both modes.
     """
     app = FastAPI(title="RealDoor AI Service", version="1.1")
+
+    # CORS for the future full-stack website (and local Postman/curl). Set
+    # REALDOOR_CORS_ORIGINS to a comma-separated allowlist in production
+    # (e.g. "https://app.example.com,http://localhost:3000"). Default "*" is
+    # fine for the hackathon / internal service until FS has a fixed origin.
+    cors_raw = os.environ.get("REALDOOR_CORS_ORIGINS", "*").strip()
+    allow_origins = (
+        ["*"]
+        if cors_raw == "*"
+        else [origin.strip() for origin in cors_raw.split(",") if origin.strip()]
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins or ["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     state: Dict[str, Any] = {
         "llm": llm,
         "ocr": ocr_engine,

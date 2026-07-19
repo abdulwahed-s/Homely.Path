@@ -25,3 +25,5 @@ services:
         sync: false            # set the real secret in the Render dashboard
       - key: REALDOOR_VISION_MODEL
         value: "gpt-4o-mini"   # optional; default is gpt-4o-mini
+      - key: REALDOOR_CORS_ORIGINS
+        value: "*"             # tighten to the FS website origin(s) when known

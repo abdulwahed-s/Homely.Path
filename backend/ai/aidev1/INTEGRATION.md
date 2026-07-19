@@ -1,61 +1,67 @@
-# AI Developer 1 — Integration Guide
+# RealDoor AI — Integration Guide
 
-**Scope owned:** "user uploads a document" → "structured profile evidence for confirmation."
-Two agents, exposed as two HTTP endpoints. Everything downstream (confirm/edit
-UI, rules, calculations, readiness, packet, safety gate) is **not** ours.
+**One unified FastAPI service** exposes every AI-owned route. Full-stack (FS)
+calls these over HTTP; the AI service holds **no session state**.
 
-- **Document Evidence Agent** → `POST /internal/ai/extract`
-- **Profile Reconciliation Agent** → `POST /internal/ai/reconcile`
+| Agent | Method | Path |
+|-------|--------|------|
+| Document Evidence | `POST` | `/internal/ai/extract` |
+| Profile Reconciliation | `POST` | `/internal/ai/reconcile` |
+| Rules & Chat (citations folded in) | `POST` | `/internal/ai/ask` |
+| Readiness | `POST` | `/internal/ai/readiness` |
+| Safety & Report | `POST` | `/internal/ai/safety-check` |
+| Liveness | `GET` | `/health` |
 
-The wire types are defined by the **frozen contract**
-`contracts/extraction_contract.py` (owned by Integration; imported by AI Dev 1
-and AI Dev 2). The extract response is that contract verbatim.
+Wire types for extract/reconcile come from the frozen contract
+`contracts/extraction_contract.py`. Readiness output is validated against
+`organizer_pack/starter/schemas/submission.schema.json`. Citation / effective-date
+retrieval for the calc view is **folded into `/ask`** — there is no separate
+citation endpoint.
 
 ---
 
 ## 0. Running the service
 
 ```bash
-pip install -r requirements.txt          # fastapi, uvicorn, python-multipart, pydantic, PyMuPDF, openai, Pillow, rapidocr-onnxruntime
-python serve.py                          # http://127.0.0.1:8000
-python serve.py --host 0.0.0.0 --port 9000
+# from repo root
+pip install -r requirements.txt
+set PYTHONPATH=.                    # Windows PowerShell: $env:PYTHONPATH="."
+python backend/serve.py             # real OpenAI mode → http://127.0.0.1:8000
+python backend/serve.py --gold      # offline gold-backed extract (no API key)
+python backend/serve.py --host 0.0.0.0 --port 9000
 ```
 
-Requires `OPENAI_API_KEY` (+ optional `REALDOOR_VISION_MODEL`, default `gpt-4o-mini`)
-in `aidev1/.env`. OCR for image-only PDFs is automatic.
+Requires `OPENAI_API_KEY` in `backend/ai/aidev1/.env` (or the process env) for
+real extract. Optional: `REALDOOR_VISION_MODEL` (default `gpt-4o-mini`),
+`REALDOOR_PACK_ROOT` or `REALDOOR_ORGANIZER_PACK` (aliases for the same pack),
+`REALDOOR_CORS_ORIGINS` (comma-separated; default `*`).
 
-- Interactive schema / try-it: **`GET /docs`** (Swagger UI, auto-generated)
-- Machine-readable schema: **`GET /openapi.json`**
-- Liveness: **`GET /health`** → `{"status":"ok"}`
+- Interactive try-it: **`GET /docs`**
+- OpenAPI: **`GET /openapi.json`**
+- Health: **`GET /health`** → `{"status":"ok","mode":"openai"|"gold"}`
 
-### Deploy note — confidence calibration (REQUIRED for FR1.13)
-
-`calibration_data.json` is **gitignored** (gold-derived), so a fresh clone/deploy
-has no calibration and runs **uncalibrated** (identity passthrough). `serve.py`
-logs a `WARNING` at startup when this happens, but to actually satisfy FR1.13 the
-deploy must fit it. The `organizer_pack` is **not** in the repo, so it must be
-present in the build environment for the fit step.
-
-Recommended **Render build command** (fit, then drop the draft pack so it never
-ships in the running image):
-
-```bash
-pip install -r requirements.txt && python calibrate.py --offline && rm -rf organizer_pack
-```
-
-- `calibrate.py --offline` uses gold + OCR only (no OpenAI key needed) and writes `calibration_data.json`.
-- The **runtime** service (`serve.py`) does **not** need `organizer_pack` — only `calibration_data.json` (build artifact) + `OPENAI_API_KEY`.
-- If you'd rather keep the pack off Render entirely, run `python calibrate.py --offline` locally and ship only the resulting `calibration_data.json` as a build secret/artifact.
+CORS is enabled via FastAPI's `CORSMiddleware` (Starlette). Preflight
+`OPTIONS` and cross-origin browser calls from the future website are allowed.
 
 ---
 
-## 1. Endpoints
+## 1. Challenge format compliance (confirmed)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/internal/ai/extract` | Classify one uploaded PDF and extract allowlisted fields with source boxes, confidence, and security flags. One call per document. |
-| `POST` | `/internal/ai/reconcile` | Compare already-extracted documents for a household and return cross-document conflict objects. One call per household (after ≥1 extract). |
-| `GET`  | `/health` | Liveness probe. |
+These shapes were checked against the organizer pack / challenge requirements:
+
+| Concern | Status |
+|---------|--------|
+| Extract → frozen `ExtractionResponse` (`extraction_contract.py`) | ✅ |
+| Flag 3: `ExtractionResponse` → `document_gold.schema.json` via `backend/integration/document_summary_builder.py` (`field_name`→`field`, boxes→`bbox` + `bbox_units: pdf_points`) | ✅ in code |
+| 5 document types + allowlisted fields only | ✅ |
+| Source boxes: page + coords, bottom-left PDF points, `source_description` | ✅ |
+| Low confidence → `value`/`normalized_value` null + `requires_manual_entry` | ✅ |
+| Injection → `security_flags: ["prompt_injection_detected"]` (instruction never extracted) | ✅ |
+| Reconcile surfaces conflicts; never picks a winner | ✅ |
+| Calc is **not** an AI endpoint (FS deterministic MTSP + annualization) | ✅ |
+| `/ask` returns grounded answer + `rule_id` + `effective_date` citations | ✅ |
+| Readiness → `READY_TO_REVIEW` / `NEEDS_REVIEW` + checklist/next_steps; submission validates `submission.schema.json` | ✅ |
+| Safety gate blocks decisioning / scoring / protected-trait / missing citations | ✅ |
 
 ---
 
@@ -65,63 +71,66 @@ pip install -r requirements.txt && python calibrate.py --offline && rm -rf organ
 
 | Part | Type | Required | Description |
 |------|------|----------|-------------|
-| `file` | file (PDF) | yes | The uploaded document bytes. PDF only. |
-| `document_id` | string (form field) | yes | Your stable id for this document (echoed back). |
-| `session_id` | string (form field) | yes | Anonymous session token; echoed into the response. |
+| `file` | file (PDF) | yes | Uploaded document bytes |
+| `document_id` | string | yes | Stable id (echoed back) |
+| `session_id` | string | yes | Anonymous session token |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/internal/ai/extract \
-  -F "document_id=HH-001-D02" \
+  -F "document_id=HH-002-D02" \
   -F "session_id=sess_abc123" \
   -F "file=@paystub.pdf;type=application/pdf"
 ```
 
-### Response `200` — `ExtractionResponse` (frozen contract)
+### Response `200` — `ExtractionResponse`
 
 ```jsonc
 {
   "session_id": "sess_abc123",
   "document": {
-    "document_id": "HH-001-D02",
-    "document_type": "pay_stub",              // enum: application_summary | pay_stub | employment_letter | benefit_letter | gig_statement | unknown
-    "security_flags": [],                     // see §5 enum
+    "document_id": "HH-002-D02",
+    "document_type": "pay_stub",
+    "security_flags": [],
     "fields": [
       {
         "field_name": "gross_pay",
-        "value": "$1,395.00",                 // display string exactly as read (may be null)
-        "normalized_value": 1395.0,            // typed value for downstream math (float|int|string|null)
-        "confidence": 0.86,                    // calibrated [0..1]
-        "confidence_level": "high",            // high >=0.80 | medium >=0.50 | low <0.50
+        "value": "$1,395.00",
+        "normalized_value": 1395.0,
+        "confidence": 0.83,
+        "confidence_level": "high",
         "confirmation_status": "awaiting_confirmation",
-        "requires_manual_entry": false,        // true => don't prefill; renter must type it
+        "requires_manual_entry": false,
         "source": {
-          "page": 1,                           // 1-based
-          "x1": 412.5, "y1": 628.0,            // PDF points, BOTTOM-LEFT origin
-          "x2": 486.0, "y2": 640.0,
+          "page": 1,
+          "x1": 340.0, "y1": 526.41, "x2": 393.38, "y2": 542.9,
           "source_description": "'gross pay' on page 1 of the pay stub document"
         }
       }
     ]
   },
   "activity_events": [
-    {"timestamp":"2026-07-19T02:00:00+00:00","agent":"document_evidence_agent","action":"load_document","status":"PASS","metadata":{"pages":1,"rasterized":false}},
-    {"timestamp":"2026-07-19T02:00:00+00:00","agent":"document_evidence_agent","action":"scan_injection","status":"PASS","metadata":{"flagged":false,"matches":[]}},
-    {"timestamp":"2026-07-19T02:00:01+00:00","agent":"document_evidence_agent","action":"classify_document","status":"PASS","metadata":{"document_type":"pay_stub","confidence":0.97}},
-    {"timestamp":"2026-07-19T02:00:03+00:00","agent":"document_evidence_agent","action":"extract_fields","status":"PASS","metadata":{"field_count":9,"manual_entry":0}}
+    {"timestamp":"2026-07-19T07:25:45+00:00","agent":"document_evidence_agent","action":"load_document","status":"PASS","metadata":{"pages":1,"rasterized":false}},
+    {"timestamp":"2026-07-19T07:25:45+00:00","agent":"document_evidence_agent","action":"scan_injection","status":"PASS","metadata":{"flagged":false,"matches":[]}},
+    {"timestamp":"2026-07-19T07:25:53+00:00","agent":"document_evidence_agent","action":"classify_document","status":"PASS","metadata":{"document_type":"pay_stub","confidence":0.95}},
+    {"timestamp":"2026-07-19T07:25:54+00:00","agent":"document_evidence_agent","action":"extract_fields","status":"PASS","metadata":{"field_count":9,"manual_entry":0}}
   ]
 }
 ```
 
-> **Coordinate system:** boxes are `pdf_points_bottom_left_origin`
-> (`0 <= x1 < x2 <= page_width`, `0 <= y1 < y2 <= page_height`, page size normally 612×792).
-> If the browser renders with a top-left origin, flip Y: `y_top = page_height - y2`.
+**Semantics FS must honor**
 
-### Field semantics you must honor
+- `requires_manual_entry: true` / `confidence_level: "low"` → do **not** prefill; `value` and `normalized_value` are `null`.
+- Boxes use `pdf_points_bottom_left_origin`. Flip Y for top-left canvas: `y_top = page_height - y2`.
+- `security_flags` non-empty → show the security banner (injection never becomes a field).
 
-- **`requires_manual_entry: true`** → do **not** prefill; render an empty input and ask the renter to type the value (FR1.6 / FR1.13-low). This is set when a value has no valid source box, failed to normalize, **or is `confidence_level: "low"`**.
-- **`confidence_level`**: `high` → prefilled, still require confirm; `medium` → prefilled, surface "needs careful review"; **`low` → `value` and `normalized_value` are returned as `null`** (never guessed) and `requires_manual_entry` is `true`.
-- **`source.source_description`** is the accessible, plain-language location text (FR6.4). Use it as alt-text/aria description for the highlight.
-- Fields the model could not read are **omitted** from `fields` (never guessed).
+### Errors
+
+| Situation | Status | Body |
+|-----------|--------|------|
+| Missing form parts | `422` | FastAPI validation |
+| Empty / corrupt PDF | `400` | `{"error_code":"INVALID_DOCUMENT","detail":"..."}` |
+| Vision model / missing key | `503` | `{"error_code":"VISION_MODEL_UNAVAILABLE","detail":"..."}` |
+| Unsupported type | `200` | `document_type:"unknown"`, `security_flags:["unsupported_document"]` |
 
 ---
 
@@ -129,8 +138,7 @@ curl -X POST http://127.0.0.1:8000/internal/ai/extract \
 
 ### Request — `application/json`
 
-Send back the **`document` objects** you received from `extract` (the frozen
-`DocumentExtractionResult` shape) for one household:
+Send the `document` objects returned by extract (one household):
 
 ```jsonc
 {
@@ -140,9 +148,45 @@ Send back the **`document` objects** you received from `extract` (the frozen
       "document_type": "pay_stub",
       "security_flags": [],
       "fields": [
-        {"field_name":"regular_hours","value":"40","normalized_value":40,"confidence":0.9,"confidence_level":"high","confirmation_status":"awaiting_confirmation","requires_manual_entry":false,"source":{"page":1,"x1":100,"y1":700,"x2":140,"y2":712,"source_description":"'regular hours' on page 1 of the pay stub document"}},
-        {"field_name":"hourly_rate","value":"$24.00","normalized_value":24.0,"confidence":0.9,"confidence_level":"high","confirmation_status":"awaiting_confirmation","requires_manual_entry":false,"source":{"page":1,"x1":100,"y1":680,"x2":140,"y2":692,"source_description":"'hourly rate' on page 1 of the pay stub document"}},
-        {"field_name":"gross_pay","value":"$1,395.00","normalized_value":1395.0,"confidence":0.9,"confidence_level":"high","confirmation_status":"awaiting_confirmation","requires_manual_entry":false,"source":{"page":1,"x1":100,"y1":660,"x2":160,"y2":672,"source_description":"'gross pay' on page 1 of the pay stub document"}}
+        {
+          "field_name": "regular_hours",
+          "value": "40",
+          "normalized_value": 40,
+          "confidence": 0.9,
+          "confidence_level": "high",
+          "confirmation_status": "awaiting_confirmation",
+          "requires_manual_entry": false,
+          "source": {
+            "page": 1, "x1": 100, "y1": 700, "x2": 140, "y2": 712,
+            "source_description": "'regular hours' on page 1 of the pay stub document"
+          }
+        },
+        {
+          "field_name": "hourly_rate",
+          "value": "$24.00",
+          "normalized_value": 24.0,
+          "confidence": 0.9,
+          "confidence_level": "high",
+          "confirmation_status": "awaiting_confirmation",
+          "requires_manual_entry": false,
+          "source": {
+            "page": 1, "x1": 100, "y1": 680, "x2": 140, "y2": 692,
+            "source_description": "'hourly rate' on page 1 of the pay stub document"
+          }
+        },
+        {
+          "field_name": "gross_pay",
+          "value": "$1,395.00",
+          "normalized_value": 1395.0,
+          "confidence": 0.9,
+          "confidence_level": "high",
+          "confirmation_status": "awaiting_confirmation",
+          "requires_manual_entry": false,
+          "source": {
+            "page": 1, "x1": 100, "y1": 660, "x2": 160, "y2": 672,
+            "source_description": "'gross pay' on page 1 of the pay stub document"
+          }
+        }
       ]
     }
   ]
@@ -156,137 +200,366 @@ Send back the **`document` objects** you received from `extract` (the frozen
   "conflicts": [
     {
       "conflict_id": "HH-002-D02:PAY_STUB_TOTAL_CONFLICT",
-      "code": "PAY_STUB_TOTAL_CONFLICT",          // see enum below
-      "severity": "blocking_for_confirmation",     // info | warning | blocking_for_confirmation
+      "code": "PAY_STUB_TOTAL_CONFLICT",
+      "severity": "blocking_for_confirmation",
       "message": "Pay stub gross pay (1395.0) does not match regular_hours x hourly_rate (40.0 x 24.0 = 960.0). Human confirmation required.",
       "document_ids": ["HH-002-D02"],
-      "field_names": ["regular_hours","hourly_rate","gross_pay"],
+      "field_names": ["regular_hours", "hourly_rate", "gross_pay"],
       "observed_values": {
-        "regular_hours": 40.0, "hourly_rate": 24.0, "gross_pay": 1395.0, "expected_gross": 960.0
+        "regular_hours": 40.0,
+        "hourly_rate": 24.0,
+        "gross_pay": 1395.0,
+        "expected_gross": 960.0
       },
-      "source_refs": [ /* SourceBox objects for the involved fields */ ]
+      "source_refs": []
     }
   ],
   "activity_events": [
-    {"timestamp":"2026-07-19T02:00:05+00:00","agent":"profile_reconciliation_agent","action":"reconcile_documents","status":"ACTION_REQUIRED","metadata":{"document_count":2,"conflict_count":1,"conflict_codes":["PAY_STUB_TOTAL_CONFLICT"]}}
+    {
+      "timestamp": "2026-07-19T02:00:05+00:00",
+      "agent": "profile_reconciliation_agent",
+      "action": "reconcile_documents",
+      "status": "ACTION_REQUIRED",
+      "metadata": {
+        "document_count": 1,
+        "conflict_count": 1,
+        "conflict_codes": ["PAY_STUB_TOTAL_CONFLICT"]
+      }
+    }
   ]
 }
 ```
 
-**Conflict codes**
-
 | `code` | Meaning | Default severity |
 |--------|---------|------------------|
-| `PAY_STUB_TOTAL_CONFLICT` | Single stub: `regular_hours × hourly_rate ≠ gross_pay` | `blocking_for_confirmation` |
-| `PAY_FREQUENCY_CONFLICT` | Pay stubs disagree on `pay_frequency` | `blocking_for_confirmation` |
-| `OVERLAPPING_PAY_PERIODS` | Two stubs cover the identical pay period (duplicate) | `warning` |
-| `PERSON_NAME_CONFLICT` | Documents show different applicant names | `warning` |
+| `PAY_STUB_TOTAL_CONFLICT` | `hours × rate ≠ gross` on one stub | `blocking_for_confirmation` |
+| `PAY_FREQUENCY_CONFLICT` | stubs disagree on frequency | `blocking_for_confirmation` |
+| `OVERLAPPING_PAY_PERIODS` | duplicate pay period | `warning` |
+| `PERSON_NAME_CONFLICT` | different applicant names | `warning` |
 
-> **Not a conflict:** differing `gross_pay` across *different* pay periods is
-> legitimate variance (e.g. overtime) and is intentionally **not** flagged.
-> Genuine duplicate evidence is caught by `OVERLAPPING_PAY_PERIODS`; intra-stub
-> arithmetic mismatches by `PAY_STUB_TOTAL_CONFLICT`.
-
-**`observed_values` shape.** *Cross-document* conflicts (`PAY_FREQUENCY_CONFLICT`,
-`OVERLAPPING_PAY_PERIODS`, `PERSON_NAME_CONFLICT`) use a uniform per-document map
-so you can render side-by-side directly:
+Cross-document conflicts use:
 
 ```jsonc
 "observed_values": {
-  "field": "pay_frequency",             // string, or array of field names for overlaps
+  "field": "pay_frequency",
   "per_document": { "HH-002-D02": "weekly", "HH-002-D03": "biweekly" }
 }
 ```
 
-`source_refs` is ordered to match `per_document` insertion order (document
-order). The single-document `PAY_STUB_TOTAL_CONFLICT` instead reports its
-arithmetic inputs (`regular_hours`, `hourly_rate`, `gross_pay`, `expected_gross`)
-since it compares fields *within* one stub. You never decide which value is
-correct; render both and let the renter resolve.
+AI never chooses the correct value — FS + renter resolve.
 
 ---
 
-## 4. Error responses
+## 4. `POST /internal/ai/ask`
 
-| Situation | Status | Body | Notes |
-|-----------|--------|------|-------|
-| Missing `file` / `document_id` / `session_id` | `422` | `{"detail":[{"loc":...,"msg":...}]}` | FastAPI validation (automatic). |
-| `reconcile` body doesn't match schema | `422` | `{"detail":[...]}` | e.g. a field missing `source`. |
-| **Corrupted / non-PDF file** | `400` | `{"error_code":"INVALID_DOCUMENT","detail":"could not open source as PDF: ..."}` | Graceful; no 500. |
-| **Empty upload (0 bytes)** | `400` | `{"error_code":"INVALID_DOCUMENT","detail":"uploaded file is empty"}` | Graceful. |
-| Unsupported / unrecognized document | `200` | normal `ExtractionResponse` with `document_type:"unknown"` and `security_flags:["unsupported_document"]`, usually empty `fields` | Not an error — handle by prompting re-upload. |
-| Image-only PDF where OCR found nothing | `200` | `security_flags` includes `"ocr_failure"`, fields may be empty/low-confidence | Show manual-entry path. |
-| Prompt injection detected | `200` | `security_flags` includes `"prompt_injection_detected"`; the embedded instruction is **never** returned as a field | Render the "🛑 instruction ignored" banner (FR1.8). |
+Grounded Q&A over the frozen rule corpus. Also used for **calc-view explanation**
+(threshold + citation + effective date) — no separate citation route.
+
+### Request — `application/json`
+
+```jsonc
+{
+  "request": {
+    "session_id": "sess_abc123",
+    "household_id": "HH-002",
+    "question": "What is the frozen 60% income threshold for this household size?"
+  },
+  "context": {
+    "session_id": "sess_abc123",
+    "active_household_id": "HH-002",
+    "calculation": {
+      "household_id": "HH-002",
+      "household_size": 2,
+      "annualized_income": 49920.0,
+      "threshold": 82320.0,
+      "comparison": "below_or_equal",
+      "formula_steps": [
+        {"label": "HH-002-D04:employment_letter", "formula": "40.0 x 24.0 x 52", "result": 49920.0}
+      ],
+      "calculation_source": "deterministic",
+      "rule_year": 2026,
+      "citations": []
+    }
+  }
+}
+```
+
+### Response `200`
+
+```jsonc
+{
+  "answer": {
+    "status": "SUPPORTED",
+    "intent": "THRESHOLD",
+    "answer": "The frozen 60% threshold is $82,320 for household size 2.",
+    "citations": [
+      {
+        "rule_id": "HUD-MTSP-002",
+        "authority": "hackathon_simulation",
+        "effective_date": "2026-05-01",
+        "source_url": "...",
+        "source_locator": "..."
+      }
+    ],
+    "reasons": [],
+    "next_action": null,
+    "requires_human_review": false
+  },
+  "safety": {
+    "status": "PASS",
+    "safe_to_display": true,
+    "checks": { /* same shape as /safety-check */ },
+    "violations": []
+  },
+  "provenance": { /* rule store / retrieval metadata */ },
+  "activity_event": {
+    "timestamp": "...",
+    "agent": "rules_chat_agent",
+    "action": "answer_question",
+    "status": "PASS",
+    "metadata": {}
+  }
+}
+```
+
+`answer.status` is one of `SUPPORTED` | `ABSTAINED` | `REFUSED`. Eligibility /
+approval language is refused; insufficient evidence → structured abstention
+(`reasons`, `next_action`), never an eligibility label.
+
+### Errors
+
+| Situation | Status | Body |
+|-----------|--------|------|
+| Invalid body / schema | `400` | `{"error_code":"INVALID_REQUEST","detail":"..."}` |
 
 ---
 
-## 5. Enum reference
+## 5. `POST /internal/ai/readiness`
 
-- **`document_type`**: `application_summary`, `pay_stub`, `employment_letter`, `benefit_letter`, `gig_statement`, `unknown`
-- **`confidence_level`**: `high` (≥0.80), `medium` (≥0.50), `low` (<0.50)
-- **`confirmation_status`**: `awaiting_confirmation`, `confirmed`, `user_edited`, `rejected` — we always emit `awaiting_confirmation`; the other values are for **your** confirm/edit workflow.
-- **`security_flags[]`**: `prompt_injection_detected`, `adversarial_content`, `unsupported_document`, `ocr_failure`
-- **`activity_events[].status`**: `PASS`, `ACTION_REQUIRED`, `WAITING`
+### Request — `application/json`
 
-### Allowlisted fields per document type (nothing else is extracted)
+Built by FS (or `backend/integration/evaluation_request_builder.py`) after
+confirm + reconcile + deterministic calc:
 
-| document_type | fields |
-|---------------|--------|
+```jsonc
+{
+  "schema_version": "1.0",
+  "request_id": "REQ-HH-002",
+  "session_id": "sess_abc123",
+  "household_id": "HH-002",
+  "consent_confirmed": true,
+  "reference_date": "2026-07-18",
+  "document_summaries": [
+    {
+      "document_id": "HH-002-D02",
+      "household_id": "HH-002",
+      "document_type": "pay_stub",
+      "file_name": "hh-002_d02_pay_stub.pdf",
+      "synthetic": true,
+      "fields": [
+        {
+          "field": "gross_pay",
+          "value": 1395.0,
+          "page": 1,
+          "bbox": [340.0, 526.41, 393.38, 542.9],
+          "bbox_units": "pdf_points"
+        }
+      ]
+    }
+  ],
+  "confirmed_profile": {
+    "household_id": "HH-002",
+    "household_size": 2,
+    "values": [ /* confirmed field rows with confirmed_by_user */ ]
+  },
+  "conflicts": [
+    {
+      "conflict_id": "HH-002-D02:PAY_STUB_TOTAL_CONFLICT",
+      "code": "PAY_STUB_TOTAL_CONFLICT",
+      "severity": "blocking_for_confirmation",
+      "message": "...",
+      "document_ids": ["HH-002-D02"],
+      "field_names": ["regular_hours", "hourly_rate", "gross_pay"],
+      "observed_values": {},
+      "source_refs": []
+    }
+  ],
+  "upstream_evidence_gaps": [],
+  "calculation_result": {
+    "household_id": "HH-002",
+    "household_size": 2,
+    "annualized_income": 49920.0,
+    "threshold": 82320.0,
+    "comparison": "below_or_equal",
+    "formula_steps": [
+      {"label": "HH-002-D04:employment_letter", "formula": "40.0 x 24.0 x 52", "result": 49920.0}
+    ],
+    "calculation_source": "deterministic",
+    "rule_year": 2026,
+    "citations": [
+      {"rule_id": "HUD-MTSP-002", "effective_date": "2026-05-01"}
+    ],
+    "calculation_status": "CALCULATED"
+  }
+}
+```
+
+### Response `200`
+
+```jsonc
+{
+  "household_id": "HH-002",
+  "readiness_status": "NEEDS_REVIEW",
+  "safety_validation": {
+    "status": "PASS",
+    "safe_to_display": true,
+    "checks": {},
+    "violations": []
+  },
+  "organizer_submission": {
+    "household_id": "HH-002",
+    "annualized_income": 49920.0,
+    "comparison": "below_or_equal",
+    "readiness_status": "NEEDS_REVIEW",
+    "citations": [
+      {"rule_id": "HUD-MTSP-002", "effective_date": "2026-05-01"}
+    ],
+    "threshold": 82320.0,
+    "formula_steps": [],
+    "review_reasons": [
+      {
+        "code": "PAY_STUB_TOTAL_CONFLICT",
+        "message": "...",
+        "evidence_ids": ["HH-002-D02"],
+        "blocks_readiness": true,
+        "next_action": "..."
+      }
+    ],
+    "checklist": [
+      {
+        "item_id": "...",
+        "label": "...",
+        "status": "NEEDS_REVIEW",
+        "reason": "...",
+        "evidence_ids": []
+      }
+    ],
+    "next_steps": [
+      {"order": 1, "action": "...", "action_type": "USER_REQUIRED"}
+    ]
+  },
+  "provenance": {},
+  "activity_event": {}
+}
+```
+
+`organizer_submission` is validated against `submission.schema.json` before return.
+If consent is missing or calc is incomplete → `readiness_status: "NEEDS_REVIEW"`
+and `organizer_submission: null`.
+
+---
+
+## 6. `POST /internal/ai/safety-check`
+
+Standalone final gate before any AI output reaches the renter or packet.
+(`/ask` and `/readiness` already run safety internally; this endpoint is for
+FS to re-gate arbitrary text.)
+
+### Request — `application/json`
+
+```jsonc
+{
+  "request_text": "",
+  "response_text": "NEEDS_REVIEW",
+  "citations": [
+    {"rule_id": "HUD-MTSP-002", "effective_date": "2026-05-01"}
+  ],
+  "active_household_id": "HH-002",
+  "referenced_household_ids": ["HH-002"],
+  "calculation_source": "deterministic",
+  "readiness_status": "NEEDS_REVIEW",
+  "unconfirmed_values_labelled": true,
+  "claims_current_property_availability": false
+}
+```
+
+### Response `200`
+
+```jsonc
+{
+  "status": "PASS",
+  "safe_to_display": true,
+  "checks": {
+    "decisioning_claim_present": false,
+    "applicant_score_or_ranking_present": false,
+    "protected_trait_inference_present": false,
+    "cross_household_data_present": false,
+    "missing_material_citation": false,
+    "non_deterministic_calculation_present": false,
+    "unconfirmed_values_unlabelled": false,
+    "invalid_readiness_status": false,
+    "property_availability_claim_present": false
+  },
+  "violations": [],
+  "replacement_message": null
+}
+```
+
+`status` is `PASS` or `BLOCKED`. On block, use `replacement_message` (never show
+the original unsafe text).
+
+---
+
+## 7. Enum & allowlist reference
+
+- **`document_type`**: `application_summary` | `pay_stub` | `employment_letter` | `benefit_letter` | `gig_statement` | `unknown`
+- **`confidence_level`**: `high` (≥0.80) | `medium` (≥0.50) | `low` (<0.50)
+- **`confirmation_status`**: AI always emits `awaiting_confirmation`; FS owns the rest
+- **`security_flags[]`**: `prompt_injection_detected` | `adversarial_content` | `unsupported_document` | `ocr_failure`
+- **`readiness_status`**: `READY_TO_REVIEW` | `NEEDS_REVIEW`
+- **`answer.status`**: `SUPPORTED` | `ABSTAINED` | `REFUSED`
+
+| document_type | allowlisted fields |
+|---------------|-------------------|
 | `application_summary` | `person_name`, `household_size`, `address`, `application_date` |
 | `pay_stub` | `person_name`, `pay_date`, `pay_period_start`, `pay_period_end`, `pay_frequency`, `regular_hours`, `hourly_rate`, `gross_pay`, `net_pay` |
 | `employment_letter` | `person_name`, `document_date`, `weekly_hours`, `hourly_rate` |
 | `benefit_letter` | `person_name`, `document_date`, `monthly_benefit`, `benefit_frequency` |
 | `gig_statement` | `person_name`, `statement_month`, `gross_receipts`, `platform_fees` |
 
-Normalized types: money (`hourly_rate`/`gross_pay`/`net_pay`/`platform_fees`) → float;
-`household_size` → int; `regular_hours`/`weekly_hours`/`monthly_benefit`/`gross_receipts` → int-if-integral else float;
-dates → `YYYY-MM-DD`; `statement_month` → `YYYY-MM`; frequency → one of `weekly|biweekly|semimonthly|monthly|annual`.
+---
+
+## 8. Who does what (FS vs AI)
+
+**FS sends:** PDFs + ids on extract; confirmed documents on reconcile; question +
+calc context on ask; evaluation request on readiness; text/citations on safety-check.
+
+**FS owns (not AI endpoints):** confirm/edit UI, session state machine, conflict
+resolution UI, **deterministic calc** (MTSP CSV + annualization), packet export
+against `submission.schema.json`.
+
+**AI owns:** classify/extract/boxes/confidence/injection, conflict *detection*,
+grounded Q&A + citations, readiness checklist/status, safety gate.
 
 ---
 
-## 6. Who does what
+## 9. Suggested call order (per household)
 
-**Full-stack sends us:**
-- `session_id` (anonymous token), `document_id`, and the PDF `file` on `extract`.
-- The collected `document` objects on `reconcile` (one household at a time).
-
-**Full-stack gets back and is responsible for:**
-- Rendering the **bounding boxes** (`source.x1..y2`, bottom-left origin) over the page image, with `source_description` as accessible text (FR1.5, FR6.4).
-- The **confirm/edit workflow** (FR1.9): nothing is "confirmed" until the renter acts. Set `confirmation_status` on your side; hold confirmed values.
-- Honoring `requires_manual_entry` / `confidence_level` (don't prefill low-confidence values) (FR1.6, FR1.13).
-- Rendering the **security banner** when `security_flags` is non-empty (FR1.8).
-- Rendering the **side-by-side conflict UI** from `conflicts[]` with both `source_refs`, and blocking downstream calc until resolved → `NEEDS_REVIEW` (FR1.12). We only *surface* conflicts.
-- Streaming **`activity_events[]`** into the live ticker / replay (FR4.7).
-- **Holding confirmed values** and calling **AI Developer 2's** endpoints (rules, calc, readiness) — we do not call downstream.
-
-**AI Developer 2 / Integration:**
-- Owns and freezes `contracts/extraction_contract.py`. If it changes, both `extract` output and `reconcile` input change with it.
-- The reconciliation conflict object is **AI-Dev-1-local** (not yet a frozen contract). Coordinate before depending on `observed_values` key names.
+```
+1. POST /internal/ai/extract          (once per PDF)
+2. [FS] renter confirm / edit
+3. POST /internal/ai/reconcile
+4. [FS] resolve blocking conflicts
+5. [FS] calculate (deterministic — not an AI call)
+6. POST /internal/ai/ask              (cite threshold / answer Q&A)
+7. POST /internal/ai/readiness
+8. POST /internal/ai/safety-check     (before display / packet)
+9. [FS] packet export
+```
 
 ---
 
-## 7. Implemented vs. not implemented (integrate-today status)
-
-### ✅ Implemented & callable today
-- `POST /internal/ai/extract` — classify + allowlisted extract + boxes + confidence + injection flags + activity events, for all **5** document types. Text and image-only (OCR) PDFs.
-- `POST /internal/ai/reconcile` — 5 conflict detectors (gross-total, pay-frequency, gross-pay, duplicate periods, person-name).
-- Calibrated confidence (`confidence` is gold-fitted), `confidence_level` tiers, and enforced low-confidence behavior (low → `null` value + `requires_manual_entry`).
-- Injection scan over text **and OCR-recovered text** (image-only pages included).
-- Structured `400 INVALID_DOCUMENT` on corrupt/empty uploads.
-- Uniform per-document `observed_values` on cross-document conflicts.
-- `security_flags`, `activity_events`, accessible `source_description`.
-- `GET /health`, `GET /docs`, `GET /openapi.json`.
-
-### 🟡 Implemented with a caveat
-- **`source_description`** is field/type/page-based (e.g. "'gross pay' on page 1 of the pay stub document"), not layout-region-aware ("earnings table, row labelled…"). Meets FR6.4; less rich than the example.
-- **`adversarial_content`** security flag is defined in the contract but not currently emitted (only `prompt_injection_detected`, `unsupported_document`, `ocr_failure` are).
-- **`calibration_data.json`** is gitignored (gold-derived). On a fresh checkout, run `python calibrate.py` or confidence falls back to identity (uncalibrated) — still functional, just not calibrated.
-
-### ❌ Not implemented (by design / out of scope)
-- **Employer-name** and **current-vs-YTD** conflict detection — those fields are **not in the allowlist**, so they are intentionally not extracted or compared.
-- Confirm/edit workflow, downstream rules/calc/readiness/packet/safety — **not ours** (full-stack + AI Dev 2).
-- Auth on the endpoints (internal service; assumed behind the app's session layer).
-
----
-
-*Contract source of truth: `contracts/extraction_contract.py`. This doc describes the live behavior of `backend/ai/api.py`, `backend/ai/document_evidence/`, and `backend/ai/profile_reconciliation/`.*
+*Live implementation: `backend/ai/api.py` (routes), `backend/serve.py` (entrypoint),
+`backend/ai/document_evidence/`, `backend/ai/profile_reconciliation/`,
+`backend/ai/rules_chat/`, `backend/ai/readiness/`, `backend/ai/safety/`,
+`backend/ai/api_adapter.py`. See also `summary.md` for workflow + architecture.*
