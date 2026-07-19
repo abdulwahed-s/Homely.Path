@@ -30,3 +30,9 @@ services:
         value: "gpt-4o-mini"   # optional; default is gpt-4o-mini
       - key: REALDOOR_CORS_ORIGINS
         value: "*"             # tighten to the FS website origin(s) when known
+      - key: FIREBASE_PROJECT_ID
+        value: "homelypath"
+      # Complete Firebase service-account JSON. This lets the trusted backend
+      # read Firestore and also enables ID-token checks on /internal/ai/*.
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
