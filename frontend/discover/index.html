@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Homely Path — Property Discovery</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172b2b;
+      --muted: #617272;
+      --teal: #087f78;
+      --teal-dark: #05625d;
+      --mint: #e5f5f1;
+      --cream: #f8f6ef;
+      --white: #fff;
+      --line: #d9e3df;
+      --danger: #a52a2a;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: linear-gradient(135deg, var(--cream), #edf7f4);
+      min-height: 100vh;
+    }
+    header {
+      padding: 28px clamp(20px, 6vw, 80px);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      font-size: 21px;
+    }
+    .mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      color: var(--white);
+      background: var(--teal);
+    }
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding-bottom: 64px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 36px;
+      align-items: center;
+      padding: 44px 0 38px;
+    }
+    .eyebrow {
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 10px 0 14px;
+      max-width: 700px;
+      font-size: clamp(38px, 6vw, 68px);
+      line-height: 1.02;
+      letter-spacing: -.04em;
+    }
+    .hero p {
+      max-width: 650px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.65;
+    }
+    .hero-art {
+      min-height: 260px;
+      border-radius: 32px;
+      background:
+        radial-gradient(circle at 72% 24%, #ffd993 0 9%, transparent 10%),
+        linear-gradient(145deg, #bce4d9, #7fc8bd);
+      display: grid;
+      place-items: center;
+      font-size: 100px;
+      box-shadow: 0 24px 70px #126b6220;
+    }
+    .panel, .property {
+      background: color-mix(in srgb, var(--white) 94%, transparent);
+      border: 1px solid var(--line);
+      box-shadow: 0 12px 40px #173e3710;
+    }
+    .panel {
+      border-radius: 24px;
+      padding: clamp(20px, 4vw, 34px);
+    }
+    form {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    input, select, button {
+      min-height: 48px;
+      border-radius: 12px;
+      font: inherit;
+    }
+    input, select {
+      width: 100%;
+      padding: 0 13px;
+      color: var(--ink);
+      background: var(--white);
+      border: 1px solid #c7d6d2;
+    }
+    input:focus, select:focus {
+      outline: 3px solid #58bdb633;
+      border-color: var(--teal);
+    }
+    button {
+      align-self: end;
+      padding: 0 22px;
+      border: 0;
+      color: var(--white);
+      background: var(--teal);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { background: var(--teal-dark); }
+    button:disabled { opacity: .65; cursor: wait; }
+    .notice {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      color: var(--muted);
+      background: var(--mint);
+      line-height: 1.5;
+    }
+    .error { color: var(--danger); background: #fff0ee; }
+    .results-head {
+      margin: 36px 0 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 20px;
+    }
+    h2 { margin: 0; font-size: 28px; }
+    #results {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .property {
+      border-radius: 18px;
+      padding: 22px;
+    }
+    .property h3 { margin: 0 0 7px; font-size: 19px; }
+    .address { min-height: 42px; color: var(--muted); line-height: 1.45; }
+    .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .fact {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: var(--mint);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .unknown { background: #fff0cf; }
+    [hidden] { display: none !important; }
+    @media (max-width: 850px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-art { min-height: 180px; }
+      form { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 560px) {
+      form, #results { grid-template-columns: 1fr; }
+      header { padding-inline: 20px; }
+      .hero { padding-top: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header><span class="mark">⌂</span> Homely Path</header>
+  <main>
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Public property discovery</div>
+        <h1>Find a place that feels like a path forward.</h1>
+        <p>Search public HUD-backed housing records by location and household needs. Results are informational and never determine eligibility or approval.</p>
+      </div>
+      <div class="hero-art" aria-hidden="true">🏘️</div>
+    </section>
+
+    <section class="panel">
+      <form id="search-form">
+        <label>State *
+          <input name="state" value="MA" minlength="2" maxlength="2" pattern="[A-Za-z]{2}" required>
+        </label>
+        <label>City
+          <input name="city" value="Boston" maxlength="120">
+        </label>
+        <label>Latitude
+          <input name="latitude" value="42.3601" type="number" min="-90" max="90" step="any">
+        </label>
+        <label>Longitude
+          <input name="longitude" value="-71.0589" type="number" min="-180" max="180" step="any">
+        </label>
+        <label>Radius (miles)
+          <input name="radius_miles" value="25" type="number" min="0.1" max="100" step="0.1">
+        </label>
+        <label>Bedrooms
+          <select name="bedrooms">
+            <option value="">Any</option>
+            <option value="0">Studio</option>
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+        <label>Household size
+          <select name="household_size">
+            <option value="">Any</option>
+            <option>1</option><option>2</option><option selected>3</option><option>4</option>
+            <option>5</option><option>6</option><option>7</option><option>8</option>
+          </select>
+        </label>
+        <label>Sort results
+          <select name="sort_by">
+            <option value="distance" selected>Nearest first</option>
+            <option value="alphabetical">Alphabetical</option>
+          </select>
+        </label>
+        <button id="submit" type="submit">Search properties</button>
+      </form>
+      <div class="notice">Availability is unknown. Contact each housing provider directly for current information.</div>
+      <div id="error" class="notice error" role="alert" hidden></div>
+    </section>
+
+    <section id="results-section" hidden>
+      <div class="results-head">
+        <div>
+          <div class="eyebrow">Search results</div>
+          <h2 id="result-count"></h2>
+        </div>
+      </div>
+      <div id="results"></div>
+      <div id="disclaimer" class="notice"></div>
+    </section>
+  </main>
+  <script>
+    const API = 'https://homely-path.onrender.com/api/discovery/properties';
+    const form = document.querySelector('#search-form');
+    const submit = document.querySelector('#submit');
+    const errorBox = document.querySelector('#error');
+    const section = document.querySelector('#results-section');
+    const results = document.querySelector('#results');
+    const count = document.querySelector('#result-count');
+    const disclaimer = document.querySelector('#disclaimer');
+    const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+
+    function addText(parent, tag, text, className) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      if (className) element.className = className;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function addFact(parent, text, className = '') {
+      addText(parent, 'span', text, `fact ${className}`.trim());
+    }
+
+    function propertyCard(property) {
+      const card = document.createElement('article');
+      card.className = 'property';
+      addText(card, 'h3', property.property_name || 'Unnamed property');
+      const address = [property.address, property.city, property.state, property.zip_code]
+        .filter(Boolean).join(', ');
+      addText(card, 'div', address || 'Address not listed', 'address');
+      const facts = document.createElement('div');
+      facts.className = 'facts';
+      addFact(facts, 'Availability unknown', 'unknown');
+      if (property.distance_miles != null) addFact(facts, `${property.distance_miles} miles away`);
+      if (property.total_units != null) addFact(facts, `${property.total_units} total units`);
+      if (property.low_income_units != null) addFact(facts, `${property.low_income_units} low-income units`);
+      if (property.fmr_reference?.amount != null) addFact(facts, `HUD rent benchmark ${money.format(property.fmr_reference.amount)}`);
+      if (property.mtsp_reference?.income_limit != null) addFact(facts, `HUD income reference ${money.format(property.mtsp_reference.income_limit)}`);
+      card.appendChild(facts);
+      return card;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorBox.hidden = true;
+      section.hidden = true;
+      submit.disabled = true;
+      submit.textContent = 'Searching…';
+
+      const params = new URLSearchParams();
+      for (const [key, value] of new FormData(form)) {
+        if (String(value).trim()) params.set(key, String(value).trim());
+      }
+
+      const hasLatitude = params.has('latitude');
+      const hasLongitude = params.has('longitude');
+      if (hasLatitude !== hasLongitude) {
+        errorBox.textContent = 'Latitude and longitude must be entered together.';
+        errorBox.hidden = false;
+        submit.disabled = false;
+        submit.textContent = 'Search properties';
+        return;
+      }
+      if (!hasLatitude) {
+        params.delete('radius_miles');
+        if (params.get('sort_by') === 'distance') params.set('sort_by', 'alphabetical');
+      }
+
+      try {
+        const response = await fetch(`${API}?${params}`);
+        const body = await response.json();
+        if (!response.ok) {
+          const detail = typeof body.detail === 'string' ? body.detail : 'The search request could not be completed.';
+          throw new Error(detail);
+        }
+        results.replaceChildren(...body.properties.map(propertyCard));
+        count.textContent = `${body.result_count} ${body.result_count === 1 ? 'property' : 'properties'} found`;
+        disclaimer.textContent = body.disclaimer;
+        section.hidden = false;
+      } catch (error) {
+        errorBox.textContent = error.message || 'Could not reach the property service.';
+        errorBox.hidden = false;
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Search properties';
+      }
+    });
+
+    form.requestSubmit();
+  </script>
+</body>
+</html>
