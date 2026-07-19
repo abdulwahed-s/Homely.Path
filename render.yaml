@@ -9,7 +9,9 @@ services:
   - type: web
     name: realdoor-ai
     runtime: python
-    plan: starter
+    # Standard (2 GB). onnxruntime OCR for rasterized PDFs OOM-kills the 512 MB
+    # starter plan; 2 GB holds the OCR models + the rest of the stack.
+    plan: standard
     # Build: install deps, then fit the offline confidence calibration (FR1.13)
     # from the committed organizer gold so a fresh deploy is never uncalibrated.
     buildCommand: "pip install -r requirements.txt && PYTHONPATH=. python backend/calibrate.py --offline"
