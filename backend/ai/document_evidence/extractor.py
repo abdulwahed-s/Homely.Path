@@ -82,6 +82,44 @@ def _unwrap(value: Any) -> Any:
     return value
 
 
+def _extract_model_bbox(raw: Any) -> Any:
+    """Return a normalized ``[x0,y0,x1,y1]`` (top-left origin) from a model
+    ``{"value":..., "bbox":[...]}`` object, or ``None`` if absent/malformed."""
+    if not isinstance(raw, dict):
+        return None
+    bbox = raw.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    try:
+        return [float(c) for c in bbox]
+    except (TypeError, ValueError):
+        return None
+
+
+def _model_box_to_points(page, bbox_norm) -> Any:
+    """Convert a normalized top-left ``[x0,y0,x1,y1]`` box (model-provided) into a
+    bottom-left-origin PDF-point box, or ``None`` if degenerate.
+
+    Mirrors ``pdf_loader``'s ``page_height - y`` flip. Coordinates are clamped
+    to ``[0,1]`` first so a slightly out-of-range model box is still usable.
+    """
+    if page is None or bbox_norm is None:
+        return None
+    try:
+        x0, y0, x1, y1 = (min(max(float(v), 0.0), 1.0) for v in bbox_norm)
+    except (TypeError, ValueError):
+        return None
+    width = float(page.width)
+    height = float(page.height)
+    x_lo, x_hi = min(x0, x1) * width, max(x0, x1) * width
+    # image top-left origin -> pdf bottom-left origin (flip Y)
+    y_lo = height * (1.0 - max(y0, y1))
+    y_hi = height * (1.0 - min(y0, y1))
+    if (x_hi - x_lo) <= 0.5 or (y_hi - y_lo) <= 0.5:
+        return None  # degenerate / zero-area box
+    return (round(x_lo, 2), round(y_lo, 2), round(x_hi, 2), round(y_hi, 2))
+
+
 def _find_box(document: LoadedDocument, display, normalized):
     """Return ``(page, box, used_ocr)`` for a value, or ``(None, None, ocr)``."""
     for page in document.pages:
@@ -120,13 +158,16 @@ def build_fields(
     fields: List[ExtractedField] = []
 
     for field_name in allowlist.fields_for(document_type):
-        raw = _unwrap(raw_values.get(field_name))
+        raw_obj = raw_values.get(field_name)
+        raw = _unwrap(raw_obj)
         display, normalized = normalize_field(field_name, raw)
         if display is None and normalized is None:
             continue  # model did not read this field
 
         page, box, used_ocr = _find_box(document, display, normalized)
         box_valid = False
+        model_located = False
+        source = None
         if box is not None and page is not None:
             source_or_error = make_source_box(
                 page.page_number, box, field_name, type_value, (page.width, page.height)
@@ -134,9 +175,32 @@ def build_fields(
             if isinstance(source_or_error, SourceBox):
                 source = source_or_error
                 box_valid = True
-            else:
-                source = _fallback_source(document, field_name, type_value)
-        else:
+
+        if source is None:
+            # No text-layer / OCR match: fall back to a box the vision model
+            # located itself (no OCR dependency; used for rasterized pages).
+            first = document.pages[0] if document.pages else None
+            model_box = _model_box_to_points(first, _extract_model_bbox(raw_obj))
+            if model_box is not None and first is not None:
+                candidate = make_source_box(
+                    first.page_number, model_box, field_name, type_value,
+                    (first.width, first.height),
+                )
+                if isinstance(candidate, SourceBox):
+                    source = SourceBox(
+                        page=candidate.page,
+                        x1=candidate.x1,
+                        y1=candidate.y1,
+                        x2=candidate.x2,
+                        y2=candidate.y2,
+                        source_description=(
+                            candidate.source_description
+                            + " (located by vision model; approximate)"
+                        ),
+                    )
+                    model_located = True
+
+        if source is None:
             source = _fallback_source(document, field_name, type_value)
 
         parse_ok = normalized is not None
@@ -145,20 +209,24 @@ def build_fields(
                 classifier_confidence=classification_confidence,
                 used_ocr=used_ocr,
                 box_valid=box_valid,
+                model_located=model_located,
                 parse_ok=parse_ok,
                 injection_near=injection_flagged,
             )
         )
         # FR1.13: map the raw score through the gold-fitted calibration model.
-        score = calibration.get_active().apply(raw_score)
+        # The calibration was fit on text/OCR-located fields, so it is not
+        # applied to model-located boxes (their score is already MEDIUM-capped).
+        score = raw_score if model_located else calibration.get_active().apply(raw_score)
         level = to_level(score)
 
         # FR1.6 / FR1.13: low-confidence values are never prefilled (never
         # guessed). We keep the field and its source so the UI can point at
         # where the value should be, but blank the value and force manual entry.
-        # medium/high are still prefilled and always require confirmation.
+        # medium/high (incl. model-located) are prefilled and require confirm.
         is_low = level == ConfidenceLevel.LOW
-        requires_manual_entry = is_low or (not box_valid) or (not parse_ok)
+        has_provenance = box_valid or model_located
+        requires_manual_entry = is_low or (not has_provenance) or (not parse_ok)
         out_value = None if is_low else display
         out_normalized = None if is_low else normalized
 

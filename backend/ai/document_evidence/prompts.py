@@ -85,7 +85,14 @@ def build_extract_prompt(
         + f"\n\nExtract fields from a {_label(document_type)} document.\n"
         + "Return a JSON object with EXACTLY these keys: "
         + keys
-        + ".\nUse null for any field that is not present. Do not add extra keys."
+        + ".\nFor EACH key, the value must be an object of the form "
+        + '{"value": <text or number, or null if the field is absent>, '
+        + '"bbox": [x0, y0, x1, y1] or null}.\n'
+        + "bbox locates the value on the page image using NORMALIZED "
+        + "coordinates in [0,1] with the ORIGIN AT THE TOP-LEFT of the page: "
+        + "[x0,y0] is the top-left corner and [x1,y1] the bottom-right corner "
+        + "of the tight rectangle around the value. Set bbox to null if you "
+        + "cannot locate it. Do not add extra keys."
     )
     user = _image_note(image_present) + "Document text:\n" + (page_text or "")
     return [
@@ -101,11 +108,22 @@ def OUTPUT_SCHEMA_FOR(document_type: str) -> dict:
     required — absent fields are returned as null.
     """
     fields = allowlist.fields_for(document_type)
+    field_schema = {
+        "type": ["object", "null"],
+        "properties": {
+            "value": {"type": ["string", "number", "null"]},
+            "bbox": {
+                "type": ["array", "null"],
+                "items": {"type": "number"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+        },
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
-        "properties": {
-            name: {"type": ["string", "number", "null"]} for name in fields
-        },
+        "properties": {name: field_schema for name in fields},
         "required": [],
         "additionalProperties": False,
     }

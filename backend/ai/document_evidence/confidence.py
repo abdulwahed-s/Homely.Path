@@ -19,6 +19,7 @@ from backend.ai.document_evidence.config import (
     CONFIDENCE_HIGH_THRESHOLD,
     CONFIDENCE_INJECTION_MAX,
     CONFIDENCE_MEDIUM_THRESHOLD,
+    CONFIDENCE_MODEL_BOX_MAX,
     CONFIDENCE_NO_BOX_MAX,
     CONFIDENCE_NO_PARSE_MAX,
     CONFIDENCE_OCR_FACTOR,
@@ -51,7 +52,12 @@ def score_field(signals: ConfidenceSignals) -> float:
     if signals.injection_near:
         score = min(score, CONFIDENCE_INJECTION_MAX)
     if not signals.box_valid:
-        score = min(score, CONFIDENCE_NO_BOX_MAX)
+        # A model-located box is weaker than text/OCR but still provenance:
+        # cap at MEDIUM rather than forcing LOW (the no-provenance case).
+        if signals.model_located:
+            score = min(score, CONFIDENCE_MODEL_BOX_MAX)
+        else:
+            score = min(score, CONFIDENCE_NO_BOX_MAX)
     if not signals.parse_ok:
         score = min(score, CONFIDENCE_NO_PARSE_MAX)
 

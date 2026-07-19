@@ -22,3 +22,8 @@ CONFIDENCE_INJECTION_MAX = 0.75
 CONFIDENCE_NO_BOX_MAX = 0.40
 # A value that failed to normalize is unreliable -> forced LOW.
 CONFIDENCE_NO_PARSE_MAX = 0.30
+# A box located by the vision model itself (no text layer / OCR) has weaker
+# provenance than a text/OCR match, so it is capped at MEDIUM. This is the
+# no-OCR path for rasterized pages: the value is real (model-read) but the box
+# is approximate, so it is prefilled yet flagged for careful review.
+CONFIDENCE_MODEL_BOX_MAX = 0.70

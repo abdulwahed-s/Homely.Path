@@ -50,5 +50,8 @@ class ConfidenceSignals:
     classifier_confidence: float = 0.0
     used_ocr: bool = False
     box_valid: bool = False
+    # True when the source box came from the vision model itself (no text layer
+    # / OCR match). Weaker provenance than ``box_valid`` -> capped at MEDIUM.
+    model_located: bool = False
     parse_ok: bool = False
     injection_near: bool = False
