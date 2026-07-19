@@ -38,11 +38,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
+
+from backend.ai import auth
 
 logger = logging.getLogger("realdoor.ai")
 
@@ -79,6 +81,8 @@ class ConflictOut(BaseModel):
 
 class ReconcileRequest(BaseModel):
     documents: List[DocumentExtractionResult]
+    # Required when Firebase auth is enabled: must equal the caller's uid.
+    session_id: Optional[str] = None
 
 
 class ReconcileResponse(BaseModel):
@@ -91,6 +95,24 @@ class AskBody(BaseModel):
 
     request: Dict[str, Any]
     context: Dict[str, Any]
+
+
+def _payload_session_id(payload: Dict[str, Any]) -> Optional[str]:
+    """Best-effort ``session_id`` lookup for the free-form JSON payloads.
+
+    Readiness / safety-check accept arbitrary dicts, so the session may live at
+    the top level or inside a nested ``context`` object. Full-stack callers must
+    include it (top-level or in context) for these routes when auth is enabled.
+    """
+    if not isinstance(payload, dict):
+        return None
+    top = payload.get("session_id")
+    if top:
+        return top
+    context = payload.get("context")
+    if isinstance(context, dict):
+        return context.get("session_id")
+    return None
 
 
 def create_app(
@@ -129,6 +151,22 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Firebase ID-token verification for every /internal/ai/* route. The
+    # `auth.firebase_user` dependency reads `Authorization: Bearer <token>`,
+    # verifies it with the Firebase Admin SDK, and each route enforces that the
+    # session belongs to the authenticated user. Auth is auto-enabled when
+    # Firebase credentials are configured (see backend/ai/auth.py); with no
+    # credentials (offline gold / CI) it is a no-op so tests keep passing.
+    @app.exception_handler(auth.AuthError)
+    async def _auth_error_handler(_request: Request, exc: auth.AuthError):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error_code": exc.error_code, "detail": exc.detail},
+            headers=(
+                {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+            ),
+        )
 
     @app.middleware("http")
     async def _log_requests(request: Request, call_next):
@@ -216,7 +254,10 @@ def create_app(
         document_id: str = Form(...),
         session_id: str = Form(...),
         file: UploadFile = File(...),
+        user: Optional[Dict[str, Any]] = Depends(auth.firebase_user),
     ):
+        # A user may only extract into their own session (session_id == uid).
+        auth.require_session_match(user, session_id)
         content = await file.read()
         logger.info(
             "extract document_id=%s filename=%s bytes=%d gold_mode=%s",
@@ -275,7 +316,11 @@ def create_app(
             )
 
     @app.post("/internal/ai/reconcile", response_model=ReconcileResponse)
-    def reconcile(request: ReconcileRequest) -> ReconcileResponse:
+    def reconcile(
+        request: ReconcileRequest,
+        user: Optional[Dict[str, Any]] = Depends(auth.firebase_user),
+    ) -> ReconcileResponse:
+        auth.require_session_match(user, request.session_id)
         result = ReconciliationAgent().reconcile(request.documents)
         conflicts = [
             ConflictOut(
@@ -294,9 +339,14 @@ def create_app(
 
     # ------------------------------------------------------------------ AI Dev 2
     @app.post("/internal/ai/ask")
-    def ask(body: AskBody):
+    def ask(
+        body: AskBody,
+        user: Optional[Dict[str, Any]] = Depends(auth.firebase_user),
+    ):
         from backend.ai import api_adapter
 
+        session_id = body.request.get("session_id") or body.context.get("session_id")
+        auth.require_session_match(user, session_id)
         try:
             return api_adapter.answer_question(body.request, body.context, pack_root=pack_root)
         except Exception as exc:  # noqa: BLE001 - surface validation errors as 400
@@ -306,9 +356,13 @@ def create_app(
             )
 
     @app.post("/internal/ai/readiness")
-    def readiness(payload: Dict[str, Any]):
+    def readiness(
+        payload: Dict[str, Any],
+        user: Optional[Dict[str, Any]] = Depends(auth.firebase_user),
+    ):
         from backend.ai import api_adapter
 
+        auth.require_session_match(user, _payload_session_id(payload))
         try:
             return api_adapter.evaluate_application(payload, pack_root=pack_root)
         except Exception as exc:  # noqa: BLE001
@@ -318,9 +372,13 @@ def create_app(
             )
 
     @app.post("/internal/ai/safety-check")
-    def safety_check(payload: Dict[str, Any]):
+    def safety_check(
+        payload: Dict[str, Any],
+        user: Optional[Dict[str, Any]] = Depends(auth.firebase_user),
+    ):
         from backend.ai import api_adapter
 
+        auth.require_session_match(user, _payload_session_id(payload))
         try:
             return api_adapter.validate_output(payload, pack_root=pack_root)
         except Exception as exc:  # noqa: BLE001
