@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .policies import (
     ALLOWED_READINESS_STATUSES,
+    CHAT_PROHIBITED_OUTPUT_PATTERNS,
     DECISION_ASSERTION_PATTERNS,
     MATERIAL_CLAIM_TERMS,
     PROTECTED_TRAITS,
@@ -9,6 +10,7 @@ from .policies import (
 )
 from .safe_responses import response_for
 from .schemas import SafetyChecks, SafetyInput, SafetyStatus, SafetyValidation
+from backend.ai.rules_chat.schemas import Citation
 
 
 class SafetyValidator:
@@ -92,4 +94,53 @@ class SafetyValidator:
             status=SafetyStatus.PASS,
             safe_to_display=True,
             checks=checks,
+        )
+
+    def validate_chat_answer(self, response: dict) -> SafetyValidation:
+        """Final deterministic validation for a template-generated chat answer."""
+        citations = [
+            Citation(
+                rule_id=item.get("rule_id"),
+                effective_date=item.get("effective_date"),
+            )
+            for item in response.get("citations", [])
+            if item.get("rule_id")
+        ]
+        validation_citations = (
+            citations
+            if response.get("status") == "SUPPORTED"
+            else [Citation(rule_id="SAFE-RESPONSE")]
+        )
+        validation = self.validate(
+            SafetyInput(
+                response_text=(
+                    f"{response.get('answer', '')}\n"
+                    f"{response.get('disclaimer', '')}"
+                ),
+                citations=validation_citations,
+                unconfirmed_values_labelled=True,
+            )
+        )
+        answer = str(response.get("answer", ""))
+        prohibited = any(
+            pattern.search(answer)
+            for pattern in CHAT_PROHIBITED_OUTPUT_PATTERNS
+        )
+        if not prohibited:
+            return validation
+
+        checks = validation.checks.model_copy(
+            update={"property_availability_claim_present": True}
+        )
+        return SafetyValidation(
+            status=SafetyStatus.BLOCKED,
+            safe_to_display=False,
+            checks=checks,
+            violations=[
+                *validation.violations,
+                "PROPERTY_AVAILABILITY_CLAIM",
+            ],
+            replacement_message=response_for(
+                "PROPERTY_AVAILABILITY_CLAIM"
+            ),
         )

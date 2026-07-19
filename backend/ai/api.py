@@ -58,6 +58,7 @@ from backend.ai.document_evidence.agent import DocumentEvidenceAgent
 from backend.ai.document_evidence.llm import LLMError
 from backend.ai.document_evidence.pdf_loader import PdfLoadError
 from backend.ai.profile_reconciliation.agent import ReconciliationAgent
+from backend.ai.rules_chat.api import router as rules_chat_router
 from backend.discovery.api import router as discovery_router
 
 __all__ = [
@@ -153,6 +154,8 @@ def create_app(
         allow_headers=["*"],
     )
     app.include_router(discovery_router)
+    app.include_router(rules_chat_router)
+    app.state.chat_pack_root = pack_root
 
     # Firebase ID-token verification for every /internal/ai/* route. The
     # `auth.firebase_user` dependency reads `Authorization: Bearer <token>`,

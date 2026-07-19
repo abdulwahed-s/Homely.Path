@@ -1,3 +1,6 @@
+from backend.ai.safety.policies import SensitiveCategory
+
+
 SAFE_RESPONSES: dict[str, str] = {
     "ELIGIBILITY_DECISION": (
         "I cannot determine eligibility, approval or denial. I can show the "
@@ -29,6 +32,46 @@ SAFE_RESPONSES: dict[str, str] = {
     ),
     "UNCONFIRMED_VALUE": (
         "A value has not been confirmed by the renter and must be clearly labelled before display."
+    ),
+}
+
+
+SAFE_REFUSALS: dict[SensitiveCategory, str] = {
+    SensitiveCategory.ELIGIBILITY: (
+        "I cannot determine whether you are eligible or qualify. I can explain "
+        "the confirmed income calculation, applicable threshold, readiness "
+        "status, and documents needing review."
+    ),
+    SensitiveCategory.APPROVAL: (
+        "I cannot predict approval or denial. I can explain which parts of the "
+        "application are ready and which need review."
+    ),
+    SensitiveCategory.ACCEPTANCE: (
+        "I cannot predict whether a property or housing provider will accept an "
+        "application."
+    ),
+    SensitiveCategory.RANKING: (
+        "I cannot rank properties by acceptance likelihood or applicant "
+        "characteristics. Properties may only be ordered using filters selected "
+        "by the renter."
+    ),
+    SensitiveCategory.AVAILABILITY: (
+        "Current availability is unknown unless supplied by a separate verified "
+        "source. The public property dataset does not establish current vacancies "
+        "or open waitlists."
+    ),
+    SensitiveCategory.PROTECTED_TRAIT: (
+        "I cannot use protected traits or demographic proxies to recommend, "
+        "filter, rank, or predict housing outcomes."
+    ),
+    SensitiveCategory.CROSS_HOUSEHOLD: (
+        "I cannot access or disclose information from another household or "
+        "applicant."
+    ),
+    SensitiveCategory.PROMPT_OVERRIDE: (
+        "I cannot ignore the application-safety and privacy rules. I can answer "
+        "supported questions about the current household's readiness results and "
+        "frozen rules."
     ),
 }
 

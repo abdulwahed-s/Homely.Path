@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 
 from .schemas import QuestionIntent
 
@@ -66,3 +67,81 @@ def classify_intent(question: str, active_household_id: str | None = None) -> Qu
         return QuestionIntent.READINESS
 
     return QuestionIntent.UNSUPPORTED
+
+
+class GroundedChatIntent(StrEnum):
+    EXPLAIN_READINESS = "EXPLAIN_READINESS"
+    EXPLAIN_CALCULATION = "EXPLAIN_CALCULATION"
+    EXPLAIN_DOCUMENTS = "EXPLAIN_DOCUMENTS"
+    EXPLAIN_NEXT_STEPS = "EXPLAIN_NEXT_STEPS"
+    EXPLAIN_MTSP = "EXPLAIN_MTSP"
+    EXPLAIN_FMR = "EXPLAIN_FMR"
+    EXPLAIN_DISCOVERY = "EXPLAIN_DISCOVERY"
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
+
+
+GROUNDED_INTENT_KEYWORDS: dict[GroundedChatIntent, tuple[str, ...]] = {
+    GroundedChatIntent.EXPLAIN_CALCULATION: (
+        "calculation",
+        "calculated",
+        "calculate my income",
+        "annual income",
+        "annualized income",
+        "formula",
+        "multiplier",
+        "weekly",
+        "biweekly",
+        "monthly",
+    ),
+    GroundedChatIntent.EXPLAIN_READINESS: (
+        "readiness",
+        "needs review",
+        "need review",
+        "ready to review",
+        "my status",
+        "why review",
+    ),
+    GroundedChatIntent.EXPLAIN_DOCUMENTS: (
+        "document",
+        "missing",
+        "expired",
+        "conflict",
+        "pay stub",
+        "employment letter",
+        "upload",
+    ),
+    GroundedChatIntent.EXPLAIN_NEXT_STEPS: (
+        "next step",
+        "what should i do",
+        "what do i need to do",
+        "how do i fix",
+    ),
+    GroundedChatIntent.EXPLAIN_MTSP: (
+        "mtsp",
+        "income limit",
+        "threshold",
+        "60 percent",
+        "60%",
+    ),
+    GroundedChatIntent.EXPLAIN_FMR: (
+        "fmr",
+        "fair market rent",
+        "rent benchmark",
+    ),
+    GroundedChatIntent.EXPLAIN_DISCOVERY: (
+        "property search",
+        "property list",
+        "availability unknown",
+        "public property data",
+    ),
+}
+
+
+def route_grounded_intent(question: str) -> GroundedChatIntent:
+    normalized = " ".join(question.casefold().split())
+    scores = {
+        intent: sum(keyword in normalized for keyword in keywords)
+        for intent, keywords in GROUNDED_INTENT_KEYWORDS.items()
+    }
+    best = max(scores, key=scores.get, default=GroundedChatIntent.OUT_OF_SCOPE)
+    return best if scores.get(best, 0) else GroundedChatIntent.OUT_OF_SCOPE

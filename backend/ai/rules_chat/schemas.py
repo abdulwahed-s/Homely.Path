@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -124,3 +125,90 @@ class RuleAnswer(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     next_action: str | None = None
     requires_human_review: bool = False
+
+
+def _question_limit() -> int:
+    try:
+        value = int(os.getenv("CHATBOT_MAX_QUESTION_LENGTH", "500"))
+    except ValueError:
+        return 500
+    return min(max(value, 1), 2000)
+
+
+CHATBOT_MAX_QUESTION_LENGTH = _question_limit()
+
+
+class GroundedChatRequest(BaseModel):
+    """The only client-authoritative fields accepted by the session chat API."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=100)
+    question: str = Field(
+        min_length=1,
+        max_length=CHATBOT_MAX_QUESTION_LENGTH,
+    )
+
+    @field_validator("session_id", "question")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("value cannot be blank")
+        return value
+
+
+class GroundedChatStatus(StrEnum):
+    SUPPORTED = "SUPPORTED"
+    REFUSED = "REFUSED"
+    ABSTAINED = "ABSTAINED"
+
+
+class RuleCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    title: str | None = None
+    effective_date: str | None = None
+    source_label: str | None = None
+
+
+class ResultReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    code: str | None = None
+    document_id: str | None = None
+    label: str | None = None
+
+
+class GroundedChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: GroundedChatStatus
+    intent: str
+    answer: str
+    citations: list[RuleCitation] = Field(default_factory=list)
+    result_references: list[ResultReference] = Field(default_factory=list)
+    safe_to_display: bool = True
+    disclaimer: str = (
+        "This explains application readiness only. It is not an eligibility, "
+        "approval, denial, priority, acceptance, ranking, or housing-availability "
+        "decision."
+    )
+
+
+class GroundedChatContext(BaseModel):
+    """Confirmed structured results available to deterministic answer templates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    household_id: str
+    readiness_status: str | None = None
+    calculation: dict[str, Any] | None = None
+    review_reasons: list[dict[str, Any]] = Field(default_factory=list)
+    checklist: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    next_steps: list[dict[str, Any]] = Field(default_factory=list)
+    selected_property: dict[str, Any] | None = None
