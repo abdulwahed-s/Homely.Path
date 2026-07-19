@@ -14,7 +14,8 @@ services:
     # from the committed organizer gold so a fresh deploy is never uncalibrated.
     buildCommand: "pip install -r requirements.txt && PYTHONPATH=. python backend/calibrate.py --offline"
     # Start: real (OpenAI) mode. --factory calls create_app() (gold_mode=False).
-    startCommand: "PYTHONPATH=. uvicorn backend.ai.api:create_app --factory --host 0.0.0.0 --port $PORT"
+    # --log-level info so request middleware lines show in Render Live Logs.
+    startCommand: "PYTHONPATH=. uvicorn backend.ai.api:create_app --factory --host 0.0.0.0 --port $PORT --log-level info"
     healthCheckPath: /health
     envVars:
       - key: PYTHONPATH

@@ -12,7 +12,13 @@ import io
 from dataclasses import dataclass
 from typing import List, Optional, Protocol, runtime_checkable
 
-__all__ = ["OCRWord", "OCREngine", "RapidOCREngine", "build_ocr_engine"]
+__all__ = [
+    "OCRWord",
+    "OCREngine",
+    "RapidOCREngine",
+    "LazyOCREngine",
+    "build_ocr_engine",
+]
 
 
 @dataclass(frozen=True)
@@ -59,8 +65,40 @@ class RapidOCREngine:
         return words
 
 
-def build_ocr_engine() -> Optional[OCREngine]:
-    """Return a RapidOCR engine, or ``None`` if OCR is unavailable."""
+class LazyOCREngine:
+    """Build RapidOCR on first ``recognize`` call only.
+
+    Loading ONNX models is memory-heavy (~hundreds of MB). On small Render
+    instances that can OOM-kill the worker on the *first* extract even when the
+    PDF is text-based and OCR is never needed. This proxy keeps OCR optional
+    and defers the cost until a rasterized page actually requires it.
+    """
+
+    def __init__(self):
+        self._inner: Optional[OCREngine] = None
+        self._failed = False
+
+    def recognize(self, png_bytes: bytes) -> List[OCRWord]:
+        if self._failed:
+            return []
+        if self._inner is None:
+            try:
+                self._inner = RapidOCREngine()
+            except Exception:  # noqa: BLE001 - OCR is optional
+                self._failed = True
+                return []
+        return self._inner.recognize(png_bytes)
+
+
+def build_ocr_engine(*, lazy: bool = True) -> Optional[OCREngine]:
+    """Return an OCR engine, or ``None`` if OCR cannot be constructed.
+
+    Default ``lazy=True`` avoids loading ONNX until the first rasterized page
+    needs it (safe for small deploy instances). Pass ``lazy=False`` for tests
+    that want the engine warmed immediately.
+    """
+    if lazy:
+        return LazyOCREngine()
     try:
         return RapidOCREngine()
     except Exception:  # noqa: BLE001 - OCR is optional; degrade gracefully

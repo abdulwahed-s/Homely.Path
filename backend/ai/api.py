@@ -32,14 +32,18 @@ injectable so tests can supply fakes.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger("realdoor.ai")
 
 from contracts.extraction_contract import (
     ActivityEvent,
@@ -125,6 +129,26 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def _log_requests(request: Request, call_next):
+        """Ensure every request leaves a line in Render live logs."""
+        started = time.perf_counter()
+        logger.info("→ %s %s", request.method, request.url.path)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception("✗ %s %s crashed", request.method, request.url.path)
+            raise
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "← %s %s → %s (%.0f ms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
+
     state: Dict[str, Any] = {
         "llm": llm,
         "ocr": ocr_engine,
@@ -136,11 +160,15 @@ def create_app(
         if state["llm"] is None:
             from backend.ai.document_evidence.factory import build_vision_llm
 
+            logger.info("Building OpenAI vision client (first extract)")
             state["llm"] = build_vision_llm()
         if not state["ocr_init"]:
             from backend.ai.document_evidence.ocr import build_ocr_engine
 
-            state["ocr"] = build_ocr_engine()
+            # Lazy proxy: does NOT load ONNX until a rasterized page needs OCR.
+            # Eager RapidOCR init was OOM-killing small Render instances on the
+            # first extract even for text PDFs that never use OCR.
+            state["ocr"] = build_ocr_engine(lazy=True)
             state["ocr_init"] = True
         return DocumentEvidenceAgent(state["llm"], ocr_engine=state["ocr"])
 
@@ -189,6 +217,13 @@ def create_app(
         file: UploadFile = File(...),
     ):
         content = await file.read()
+        logger.info(
+            "extract document_id=%s filename=%s bytes=%d gold_mode=%s",
+            document_id,
+            file.filename,
+            len(content),
+            gold_mode,
+        )
         if not content:
             return JSONResponse(
                 status_code=400,
@@ -223,6 +258,12 @@ def create_app(
             return JSONResponse(
                 status_code=503,
                 content={"error_code": "VISION_MODEL_UNAVAILABLE", "detail": str(exc)},
+            )
+        except Exception as exc:  # noqa: BLE001 - never let extract OOM/crash to bare 502
+            logger.exception("extract failed document_id=%s", document_id)
+            return JSONResponse(
+                status_code=500,
+                content={"error_code": "EXTRACT_FAILED", "detail": str(exc)},
             )
 
     @app.post("/internal/ai/reconcile", response_model=ReconcileResponse)
