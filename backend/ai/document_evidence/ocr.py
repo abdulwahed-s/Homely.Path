@@ -39,12 +39,34 @@ class OCREngine(Protocol):
 
 
 class RapidOCREngine:
-    """OCR backed by ``rapidocr-onnxruntime`` (line-level boxes)."""
+    """OCR backed by ``rapidocr-onnxruntime`` (line-level boxes).
+
+    Configured to be memory-frugal so it can run on small (512 MB) deploy
+    instances: single-threaded onnxruntime sessions (smaller thread arenas) and
+    a capped detection side length (smaller inference tensors). These knobs
+    reduce peak RSS at a small latency cost.
+    """
 
     def __init__(self):
+        import os
+
+        # Keep native thread pools tiny before onnxruntime spins them up.
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("ORT_DISABLE_ALL_OPTIMIZATION", "0")
+
         from rapidocr_onnxruntime import RapidOCR
 
-        self._engine = RapidOCR()
+        frugal = {
+            "intra_op_num_threads": 1,
+            "inter_op_num_threads": 1,
+            "det_limit_side_len": 960,
+            "det_limit_type": "max",
+        }
+        try:
+            self._engine = RapidOCR(**frugal)
+        except TypeError:
+            # Older/newer RapidOCR signatures may not accept these kwargs.
+            self._engine = RapidOCR()
 
     def recognize(self, png_bytes: bytes) -> List[OCRWord]:
         import numpy as np
@@ -91,12 +113,19 @@ class LazyOCREngine:
 
 
 def build_ocr_engine(*, lazy: bool = True) -> Optional[OCREngine]:
-    """Return an OCR engine, or ``None`` if OCR cannot be constructed.
+    """Return an OCR engine, or ``None`` if OCR is disabled/unavailable.
+
+    Set ``REALDOOR_DISABLE_OCR=1`` to turn OCR off entirely: rasterized pages
+    then degrade to manual entry instead of loading onnxruntime — a safety
+    valve for instances too small to hold the OCR models in RAM.
 
     Default ``lazy=True`` avoids loading ONNX until the first rasterized page
-    needs it (safe for small deploy instances). Pass ``lazy=False`` for tests
-    that want the engine warmed immediately.
+    needs it. Pass ``lazy=False`` for tests that want it warmed immediately.
     """
+    import os
+
+    if os.environ.get("REALDOOR_DISABLE_OCR", "").strip().lower() in {"1", "true", "yes"}:
+        return None
     if lazy:
         return LazyOCREngine()
     try:

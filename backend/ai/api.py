@@ -41,6 +41,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 logger = logging.getLogger("realdoor.ai")
@@ -248,7 +249,14 @@ def create_app(
                     content={"error_code": "VISION_MODEL_UNAVAILABLE", "detail": str(exc)},
                 )
         try:
-            return agent.process_document(content, document_id, session_id)
+            # Offload the blocking, CPU-heavy pipeline (PDF render + OCR + model
+            # I/O) to a worker thread so the event loop stays responsive and
+            # /health keeps answering during a long extract (otherwise Render's
+            # health check restarts the worker mid-request -> empty 502).
+            result = await run_in_threadpool(
+                agent.process_document, content, document_id, session_id
+            )
+            return result
         except PdfLoadError as exc:
             return JSONResponse(
                 status_code=400,
@@ -259,7 +267,7 @@ def create_app(
                 status_code=503,
                 content={"error_code": "VISION_MODEL_UNAVAILABLE", "detail": str(exc)},
             )
-        except Exception as exc:  # noqa: BLE001 - never let extract OOM/crash to bare 502
+        except Exception as exc:  # noqa: BLE001 - never let extract crash to bare 502
             logger.exception("extract failed document_id=%s", document_id)
             return JSONResponse(
                 status_code=500,
