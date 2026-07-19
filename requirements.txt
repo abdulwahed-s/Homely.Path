@@ -12,3 +12,5 @@ fastapi>=0.110           # HTTP endpoints (all five /internal/ai/* routes); incl
 uvicorn>=0.29            # ASGI server (python serve.py)
 python-multipart>=0.0.9  # multipart/form-data file uploads on /extract
 firebase-admin>=6.5       # verify Firebase ID tokens on /internal/ai/* (Authorization: Bearer)
+pandas>=2.2,<4            # one-time HUD CSV/XLSX normalization scripts
+openpyxl>=3.1,<4          # read official HUD Excel workbooks

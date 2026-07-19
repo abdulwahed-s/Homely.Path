@@ -1,3 +1,12 @@
 .env
 .env.*
 !.env.example
+
+__pycache__/
+*.py[cod]
+
+firebase-service-account.json
+*service-account*.json
+
+data/hud/*
+!data/hud/README.md
