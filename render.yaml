@@ -1,0 +1,27 @@
+# Render deployment for the RealDoor AI service (single unified service).
+# All five AI endpoints are served by one FastAPI app:
+#   /internal/ai/extract, /reconcile, /ask, /readiness, /safety-check
+#
+# Python is pinned to 3.11 via runtime.txt (code requires >=3.11 for StrEnum).
+# organizer_pack/ and calibration_data.json are committed, so they are present
+# at both build and runtime (no separate fetch needed).
+services:
+  - type: web
+    name: realdoor-ai
+    runtime: python
+    plan: starter
+    # Build: install deps, then fit the offline confidence calibration (FR1.13)
+    # from the committed organizer gold so a fresh deploy is never uncalibrated.
+    buildCommand: "pip install -r requirements.txt && PYTHONPATH=. python backend/calibrate.py --offline"
+    # Start: real (OpenAI) mode. --factory calls create_app() (gold_mode=False).
+    startCommand: "PYTHONPATH=. uvicorn backend.ai.api:create_app --factory --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONPATH
+        value: "."
+      - key: REALDOOR_PACK_ROOT
+        value: "./organizer_pack"
+      - key: OPENAI_API_KEY
+        sync: false            # set the real secret in the Render dashboard
+      - key: REALDOOR_VISION_MODEL
+        value: "gpt-4o-mini"   # optional; default is gpt-4o-mini

@@ -23,8 +23,11 @@ def resolve_pack_root(pack_root: str | Path | None = None) -> Path:
     candidates: list[Path] = []
     if pack_root is not None:
         candidates.append(Path(pack_root))
-    if os.getenv("REALDOOR_PACK_ROOT"):
-        candidates.append(Path(os.environ["REALDOOR_PACK_ROOT"]))
+    # REALDOOR_PACK_ROOT (Dev 2) and REALDOOR_ORGANIZER_PACK (Dev 1) are aliases
+    # for the same organizer pack; either one may be set on the deploy target.
+    for env_name in ("REALDOOR_PACK_ROOT", "REALDOOR_ORGANIZER_PACK"):
+        if os.getenv(env_name):
+            candidates.append(Path(os.environ[env_name]))
     candidates.extend([
         Path("organizer_pack"),
         Path("realdoor-hackathon-starter-pack"),

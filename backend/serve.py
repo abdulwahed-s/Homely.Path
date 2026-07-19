@@ -1,15 +1,20 @@
-"""Run the AI Developer 1 HTTP service.
+"""Run the RealDoor AI HTTP service (all five agent endpoints).
 
-    python serve.py                 # http://127.0.0.1:8000
+    python serve.py                 # http://127.0.0.1:8000 (production/OpenAI mode)
     python serve.py --port 9000
+    python serve.py --gold          # offline gold-backed mode (no OPENAI_API_KEY)
 
 Routes:
     GET  /health
-    POST /internal/ai/extract     (multipart: document_id, session_id, file=<pdf>)
-    POST /internal/ai/reconcile   (json: {"documents": [DocumentExtractionResult, ...]})
+    POST /internal/ai/extract       (multipart: document_id, session_id, file=<pdf>)
+    POST /internal/ai/reconcile     (json: {"documents": [DocumentExtractionResult, ...]})
+    POST /internal/ai/ask           (json: {"request": {...}, "context": {...}})
+    POST /internal/ai/readiness     (json: evaluation request payload)
+    POST /internal/ai/safety-check  (json: SafetyInput payload)
 
-Uses the real OpenAI vision model (needs OPENAI_API_KEY, loaded from .env) and
-OCR for rasterized pages.
+Default (production) mode uses the real OpenAI vision model (needs
+OPENAI_API_KEY, loaded from .env) and OCR for rasterized pages. ``--gold`` runs
+the deterministic gold-backed model for offline demos and CI.
 """
 
 from __future__ import annotations
@@ -49,19 +54,26 @@ def _warn_if_uncalibrated() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Serve AI Developer 1 endpoints")
+    parser = argparse.ArgumentParser(description="Serve the RealDoor AI endpoints")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--gold",
+        action="store_true",
+        help="run in offline gold-backed mode (no OPENAI_API_KEY required)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     _warn_if_uncalibrated()
+    if args.gold:
+        logger.info("Starting in GOLD mode (deterministic, offline; no OpenAI calls).")
 
     import uvicorn
 
     from backend.ai.api import create_app
 
-    uvicorn.run(create_app(), host=args.host, port=args.port)
+    uvicorn.run(create_app(gold_mode=args.gold), host=args.host, port=args.port)
     return 0
 
 

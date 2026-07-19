@@ -27,9 +27,12 @@ def find_organizer_pack(start: Optional[Path] = None) -> Optional[Path]:
        placed at ``C:\\Homely.Path\\organizer_pack`` if/when one exists.
     Returns ``None`` if no pack is found.
     """
-    override = os.environ.get("REALDOOR_ORGANIZER_PACK")
-    if override and Path(override).is_dir():
-        return Path(override)
+    # REALDOOR_ORGANIZER_PACK (Dev 1) and REALDOOR_PACK_ROOT (Dev 2) are aliases
+    # for the same organizer pack; either one may be set on the deploy target.
+    for env_name in ("REALDOOR_ORGANIZER_PACK", "REALDOOR_PACK_ROOT"):
+        override = os.environ.get(env_name)
+        if override and Path(override).is_dir():
+            return Path(override)
     base = Path(start) if start else _AIDEV1_ROOT
     for directory in [base, *base.parents]:
         candidate = directory / "organizer_pack"
@@ -55,7 +58,9 @@ def load_env(path: Optional[Path] = None, override: bool = False) -> bool:
     if env_path is None or not env_path.is_file():
         return False
 
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig strips a leading BOM so the first key isn't read as
+    # "\ufeffOPENAI_API_KEY" (a common cause of "key not set" on Windows editors).
+    for raw_line in env_path.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
